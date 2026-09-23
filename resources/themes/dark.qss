@@ -1,0 +1,100 @@
+/* Тёмная тема — Image Generation Studio (макет) */
+
+QWidget {
+    background-color: #1e1e2e;
+    color: #e6e6f0;
+    font-family: "Segoe UI";
+    font-size: 9pt;
+}
+
+QMainWindow { background-color: #1e1e2e; }
+QMenuBar { background-color: #27273a; }
+QMenuBar::item { background: transparent; padding: 3px 10px; }
+QMenuBar::item:selected { background: #3a3a52; }
+QMenu { background-color: #27273a; padding: 2px; }
+QMenu::item:selected { background: #3a3a52; }
+
+QComboBox, QLineEdit, QSpinBox {
+    background-color: #1b1b29;
+    border: 1px solid #3a3a52;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+QComboBox:hover, QLineEdit:hover, QSpinBox:hover { border-color: #4a4a66; }
+QComboBox:focus, QLineEdit:focus, QSpinBox:focus { border-color: #6c8cff; }
+QComboBox::drop-down { border: none; width: 16px; }
+QComboBox QAbstractItemView { background-color: #27273a; selection-background-color: #3a3a52; }
+
+QPushButton {
+    background-color: #2f2f45;
+    border: 1px solid #3a3a52;
+    border-radius: 4px;
+    padding: 3px 10px;
+}
+QPushButton:hover { background-color: #3a3a52; }
+QPushButton:pressed { background-color: #454563; }
+QPushButton#primary {
+    background-color: #6c8cff;
+    color: #ffffff;
+    border: 1px solid #5a7aff;
+    font-weight: 600;
+    padding: 4px 14px;
+}
+QPushButton#primary:hover { background-color: #5a7aff; }
+QPushButton#danger { color: #f87171; border-color: #f87171; }
+QPushButton#link { background: transparent; border: none; color: #6c8cff; }
+QPushButton#link:hover { text-decoration: underline; }
+
+QFrame#panel {
+    background-color: #27273a;
+    border: 1px solid #3a3a52;
+    border-radius: 6px;
+}
+QLabel#panelTitle {
+    background-color: transparent;
+    color: #9a9ab0;
+    font-size: 8pt;
+    letter-spacing: 0.5px;
+    padding: 1px 8px;
+}
+QLabel#dropArea {
+    background-color: #1b1b29;
+    border: 1px dashed #3a3a52;
+    border-radius: 4px;
+    color: #9a9ab0;
+}
+QLabel#hint { color: #9a9ab0; font-size: 8pt; font-style: italic; }
+
+QTextEdit, QPlainTextEdit {
+    background-color: #1b1b29;
+    border: 1px solid #3a3a52;
+    border-radius: 4px;
+    padding: 3px;
+}
+QStatusBar { background-color: #27273a; color: #9a9ab0; }
+QSplitter::handle { background-color: #33334a; }
+QScrollArea { border: none; }
+QScrollBar:vertical { background: transparent; width: 8px; }
+QScrollBar::handle:vertical { background: #4a4a66; border-radius: 4px; }
+
+/* Числовое поле «Кол-во»: своя обёртка вместо QSpinBox */
+QFrame#numberField {
+    background-color: #1b1b29;
+    border: 1px solid #3a3a52;
+    border-radius: 4px;
+}
+QFrame#numberField:hover { border-color: #4a4a66; }
+QLineEdit#numberEdit {
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+QToolButton#numberBtn {
+    background: transparent;
+    border: none;
+    color: #9a9ab0;
+    font-size: 7pt;
+    padding: 0;
+}
+QToolButton#numberBtn:hover { background: #3a3a52; color: #e6e6f0; }
+QToolButton#numberBtn:pressed { background: #454563; }
