@@ -1,12 +1,12 @@
-# Нормализация переводов строк: в репозитории — LF, на checkout — по ОС.
+# Нормализация переводов строк: LF в репозитории, автоконвертация при checkout
 * text=auto eol=lf
 
-# Windows-скрипты должны оставаться CRLF.
+# Windows-скрипты: сохранять CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
-# Бинарные файлы — git не должен делать для них текстовый diff.
+# Бинарные файлы: без текстового diff
 *.png binary
 *.jpg binary
 *.jpeg binary
@@ -16,12 +16,12 @@
 *.xlsx binary
 *.pdf binary
 
-# Не включать приватные файлы в git archive (доп. страховка к .gitignore).
+# Исключать локальные файлы из git archive
 AGENTS.md export-ignore
 DEVLOG.md export-ignore
 specs.md export-ignore
 references/ export-ignore
 
-# GitHub: вендорные доки не считать документацией проекта.
+# Вендорная документация: не учитывать как документацию проекта
 docs/aitunnel/ linguist-vendored
 docs/polza/ linguist-vendored

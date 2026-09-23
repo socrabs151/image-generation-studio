@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
-"""QRunnable-обёртки над сервисами для выполнения не в UI-потоке (specs.md §9.6).
+"""Background tasks (QRunnable) executed outside the UI thread.
 
-Сигналы finished / failed / progress. Реализация — этап M1.
+Results are delivered to the UI thread through finished / failed / progress signals.
 """
 
 from __future__ import annotations
-
-# TODO(M1): CatalogWorker, GenerationWorker.

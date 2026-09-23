@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Базовый интерфейс провайдера (specs.md §9.2).
+"""Provider abstract base class.
 
-``Provider`` (ABC): fetch_catalog / generate / check_account.
-Реализация — этап M1.
+Planned interface: fetch_catalog, generate, check_account.
 """
 
 from __future__ import annotations
-
-# TODO(M1): ABC Provider.

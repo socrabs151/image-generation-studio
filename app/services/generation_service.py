@@ -1,10 +1,7 @@
-# -*- coding: utf-8 -*-
-"""Оркестрация генерации (specs.md §9.4).
+"""Orchestration of image generation.
 
-Валидация, проверка баланса/резерва, вызов провайдера, сохранение файлов,
-журнал трат. Без авто-ретраев (MONEY-1). Реализация — этап M1/M2.
+Planned: validation, balance and reserved-amount checks, provider call, file saving
+and a spend log. No automatic retries.
 """
 
 from __future__ import annotations
-
-# TODO(M1): GenerationService.

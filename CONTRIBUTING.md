@@ -1,7 +1,5 @@
 # Contributing
 
-Спасибо за интерес к проекту. Ниже — как настроить окружение и какие правила соблюдать.
-
 ## Окружение
 
 ```bash
@@ -14,34 +12,40 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Запуск приложения
-
-```bash
-python -m app
-```
-
 ## Проверки перед коммитом
 
 ```bash
 ruff check .        # линтер
-ruff format .       # форматтер (по желанию)
+ruff format .       # форматтер
 pytest -q           # тесты
 ```
 
-CI прогоняет `ruff check` и `pytest` на каждый push/PR — держите их зелёными.
+CI выполняет `ruff check` и `pytest` на каждый push и pull request; обе проверки
+должны проходить.
 
 ## Стандарты кода
 
-Полный свод — `specs.md` §11. Ключевое:
-
-- Python 3.11+, type hints везде, `from __future__ import annotations`.
-- Длина строки — 100 символов.
-- Docstrings на русском; комментарии — только для неочевидного.
-- Файловый ввод-вывод — всегда `encoding="utf-8"`.
+- Python 3.11+, аннотации типов везде, `from __future__ import annotations`.
+- Максимальная длина строки — 100 символов.
+- Docstrings для модулей, классов и публичных функций.
+- Файловый ввод-вывод — всегда с `encoding="utf-8"`.
 - Логирование через `logging`, не `print`.
-- Ядро (`core/`, `providers/`, `services/`) не импортирует PySide6.
+- Слои `core/`, `providers/`, `services/` не импортируют PySide6.
+
+## Сообщения коммитов
+
+Conventional Commits, на английском языке:
+
+```
+feat: add model catalog caching
+fix: correct price range calculation
+docs: update contributing guide
+chore: bump dependencies
+```
+
+Типы: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
 ## Сообщение о проблемах
 
 Опишите шаги воспроизведения, ожидаемое и фактическое поведение. Не прикладывайте
-API-ключи и личные данные.
+API-ключи и персональные данные.

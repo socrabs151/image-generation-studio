@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Доменные модели (specs.md §9.3).
+"""Domain models shared across the application.
 
-Здесь будут dataclass'ы (slots): ModelInfo, GenerationRequest, GeneratedImage,
-GenerationResult, AccountInfo. Реализация — этап M1.
+Planned: ModelInfo, GenerationRequest, GeneratedImage, GenerationResult, AccountInfo.
 """
 
 from __future__ import annotations
-
-# TODO(M1): dataclass-модели из specs.md §9.3.

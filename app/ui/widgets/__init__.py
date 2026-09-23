@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Переиспользуемые виджеты."""
+"""Reusable widgets."""
 
 from __future__ import annotations

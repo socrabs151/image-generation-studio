@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Расчёт цен и резерва (specs.md §9.4).
+"""Price and reserved-amount calculations.
 
-Логика: резерв = max_price × n; работа с диапазонами цен «от…до».
-Реализация — этап M1/M2.
+Planned: reserved amount = max_price * n, helpers for price ranges.
 """
 
 from __future__ import annotations
-
-# TODO(M1): функции расчёта цены/резерва.

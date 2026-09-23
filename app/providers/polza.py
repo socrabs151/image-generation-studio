@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Провайдер Polza.ai (specs.md §9.2).
+"""Polza.ai provider.
 
-Портируется логика из img-generator-script/polza_image_models.py.
-Реализация — этап M3.
+Planned: model catalog, generation, balance.
 """
 
 from __future__ import annotations
-
-# TODO(M3): PolzaProvider.

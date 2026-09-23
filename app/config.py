@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Пути и константы приложения (см. specs.md §15).
+"""Application paths and constants.
 
-Единая точка правды для расположения данных, ресурсов и версий схемы JSON.
+Single source of truth for data locations, resources and JSON schema versions.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from pathlib import Path
 APP_NAME = "Image Generation Studio"
 APP_ID = "image-generation-studio"
 
-# Корень проекта — папка, содержащая app/ и resources/.
+# Project root: the folder that contains app/ and resources/.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES_DIR = PROJECT_ROOT / "resources"
 THEMES_DIR = RESOURCES_DIR / "themes"
@@ -19,15 +18,15 @@ ICONS_DIR = RESOURCES_DIR / "icons"
 DOCS_DIR = PROJECT_ROOT / "docs"
 DATA_DIR = PROJECT_ROOT / "data"
 
-# Файлы данных (в рабочей директории, см. .gitignore).
+# Application data files.
 SETTINGS_FILE = DATA_DIR / "settings.json"
 HISTORY_FILE = DATA_DIR / "history.json"
 CATALOG_CACHE_FILE = DATA_DIR / "catalog_cache.json"
 
-# Версия схемы файлов настроек/истории — для миграций.
+# Schema versions of the settings and history files (used for migrations).
 SETTINGS_SCHEMA_VERSION = 1
 HISTORY_SCHEMA_VERSION = 1
 
-# Ограничения запроса (specs.md §8).
-MAX_REFERENCE_BYTES = 25 * 1024 * 1024  # 25 МБ
+# Input limits.
+MAX_REFERENCE_BYTES = 25 * 1024 * 1024
 REFERENCE_FORMATS = ("png", "jpeg", "webp", "gif")

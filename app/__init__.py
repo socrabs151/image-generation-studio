@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-"""Image Generation Studio — приложение для генерации изображений через агрегаторы."""
+"""Image Generation Studio."""
 
 from __future__ import annotations
 

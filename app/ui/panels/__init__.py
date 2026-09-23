@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Панели главного окна."""
+"""Main window panels."""
 
 from __future__ import annotations

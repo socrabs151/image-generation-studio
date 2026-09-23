@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
-"""Числовое поле со стрелками (specs.md §12.1). Реализация — этап M1.
+"""Numeric input field with increment and decrement buttons.
 
-Портируется из references/ui_kit.py NumberField.
+A custom widget is used instead of QSpinBox, because a global style sheet breaks the
+QSpinBox subcontrol layout.
 """
 
 from __future__ import annotations
-
-# TODO(M1): NumberField.

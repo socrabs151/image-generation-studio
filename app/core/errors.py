@@ -1,10 +1,7 @@
-# -*- coding: utf-8 -*-
-"""Иерархия исключений (specs.md §10).
+"""Application exception hierarchy.
 
-AppError → ProviderError → InsufficientFundsError, BadParameterError,
-ProviderTimeoutError, NetworkError. Реализация — этап M1.
+Planned: AppError -> ProviderError -> InsufficientFundsError, BadParameterError,
+ProviderTimeoutError, NetworkError.
 """
 
 from __future__ import annotations
-
-# TODO(M1): исключения из specs.md §10.

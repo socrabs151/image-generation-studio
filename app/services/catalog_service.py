@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Загрузка каталога моделей и кеш (specs.md §9.4).
+"""Loading and caching of the provider model catalog.
 
-Работа из кеша при отсутствии сети. Реализация — этап M1.
+Planned: fall back to the local cache when the network is unavailable.
 """
 
 from __future__ import annotations
-
-# TODO(M1): CatalogService.

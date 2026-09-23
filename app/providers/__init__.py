@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Провайдеры (агрегаторы). Не импортируют PySide6 (specs.md §9.1)."""
+"""Aggregator providers. Must not import PySide6."""
 
 from __future__ import annotations

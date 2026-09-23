@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Доменный слой: модели, ошибки, тарифы. Без зависимостей от Qt и сети."""
+"""Domain layer: models, errors and pricing. Independent of Qt and networking."""
 
 from __future__ import annotations

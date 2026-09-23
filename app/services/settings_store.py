@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Хранилище настроек: settings.json (specs.md §9.4).
+"""Persistent storage for application settings (settings.json).
 
-Атомарная запись, версия схемы, миграции. Реализация — этап M1.
+Planned: atomic writes, schema versioning and migrations.
 """
 
 from __future__ import annotations
-
-# TODO(M1): SettingsStore.

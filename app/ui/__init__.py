@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Слой интерфейса (PySide6)."""
+"""User interface layer (PySide6)."""
 
 from __future__ import annotations
