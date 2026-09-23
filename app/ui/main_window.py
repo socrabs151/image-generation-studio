@@ -137,7 +137,11 @@ class MainWindow(QMainWindow):
 
     def _build_model_bar(self) -> QWidget:
         bar = QWidget()
-        row = QHBoxLayout(bar)
+        outer = QVBoxLayout(bar)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         row.addWidget(QLabel("Model:"))
@@ -145,6 +149,20 @@ class MainWindow(QMainWindow):
         self._model_combo.setMinimumWidth(420)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         row.addWidget(self._model_combo, stretch=1)
+
+        help_label = QLabel("ⓘ")
+        help_label.setObjectName("hint")
+        help_label.setCursor(Qt.CursorShape.WhatsThisCursor)
+        help_label.setToolTip(ModelInfo.capabilities_legend())
+        row.addWidget(help_label)
+        outer.addLayout(row)
+
+        legend = QLabel(
+            "refs — reference images for editing · n — images per request · "
+            "price — per image"
+        )
+        legend.setObjectName("hint")
+        outer.addWidget(legend)
         return bar
 
     @staticmethod
@@ -246,7 +264,7 @@ class MainWindow(QMainWindow):
         reserved = reserved_amount(model.max_price, request.n)
         if reserved is not None:
             self.log.info(
-                f"Reserved amount: {format_money(reserved)} RUB "
+                f"Reserved amount: {format_money(reserved)} ₽ "
                 "(max×n, refunded after the response)."
             )
 
@@ -316,6 +334,7 @@ class MainWindow(QMainWindow):
     # ---------- worker plumbing ----------
     def _run(self, function, *args, on_done, on_fail, **kwargs) -> None:
         worker = FunctionWorker(function, *args, **kwargs)
+        worker.setAutoDelete(False)
         worker.signals.finished.connect(on_done)
         worker.signals.failed.connect(on_fail)
         worker.signals.finished.connect(self._clear_worker)
@@ -345,20 +364,22 @@ class MainWindow(QMainWindow):
         self.log.error(f"Catalog load failed: {message}")
 
     def _on_account(self, account: AccountInfo) -> None:
-        self._balance_label.setText(f"{format_money(account.balance)} RUB")
-        suffix = (
-            f", budget left: {format_money(account.budget_remaining)} RUB"
-            if account.budget_remaining is not None
-            else ""
-        )
-        self.log.info(f"Balance: {format_money(account.balance)} RUB{suffix}")
+        balance = f"{format_money(account.balance)} ₽"
+        parts = [f"Balance: {balance}"]
+        if account.budget_remaining is not None:
+            budget = f"{format_money(account.budget_remaining)} ₽"
+            if account.budget_initial is not None:
+                budget += f" of {format_money(account.budget_initial)} ₽"
+            parts.append(f"budget left: {budget}")
+        self._balance_label.setText(" · ".join(parts))
+        self.log.info(", ".join(parts) + ".")
 
     def _on_generated(self, outcome: GenerationOutcome) -> None:
         pixmaps = [WorkspacePanel.bytes_to_pixmap(image.data) for image in outcome.result.images]
         self.workspace.show_images(pixmaps)
         cost = format_money(outcome.result.cost_rub)
-        self._status_cost.setText(f"Last generation: {cost} RUB")
-        self.log.info(f"Done. Cost: {cost} RUB. Files saved: {len(outcome.file_paths)}.")
+        self._status_cost.setText(f"Last generation: {cost} ₽")
+        self.log.info(f"Done. Cost: {cost} ₽. Files saved: {len(outcome.file_paths)}.")
 
     def _on_generation_failed(self, message: str) -> None:
         self.workspace.show_error(message)
@@ -381,8 +402,8 @@ class MainWindow(QMainWindow):
         self._status_model.setText(f"Model: {model.id}")
         reserved = reserved_amount(model.max_price, self.params.selected_n())
         self.prompt.set_cost_hint(
-            f"Range: {format_price(model.min_price, model.max_price)} RUB · "
-            f"reserved ~{format_money(reserved)} RUB"
+            f"Range: {format_price(model.min_price, model.max_price)} ₽ · "
+            f"reserved ~{format_money(reserved)} ₽"
         )
 
     def _collect_references(self) -> list[bytes]:
@@ -406,6 +427,9 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "API key required", "Add an API key in Settings.")
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        # Cancel the running task and wait for the pool, so no signal is delivered
+        # to this window after it is destroyed.
         if self._worker is not None:
             self._worker.cancel()
+        self._pool.waitForDone(5000)
         super().closeEvent(event)

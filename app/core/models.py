@@ -43,19 +43,32 @@ class ModelInfo:
         """Human-readable price label, e.g. ``0.85…42.50 ₽``."""
         from app.core.pricing import format_price
 
-        return format_price(self.min_price, self.max_price)
+        return f"{format_price(self.min_price, self.max_price)} ₽"
 
     def display_name(self) -> str:
-        """Dropdown label: ``model — provider — price — capabilities``."""
+        """Dropdown label: ``model — provider — price — capabilities``.
+
+        ``refs`` is the maximum number of reference (input) images for editing;
+        ``n`` is the maximum number of images per request.
+        """
         bits: list[str] = []
         if self.resolutions:
             bits.append("/".join(self.resolutions[:4]))
         if self.max_input_references:
-            bits.append(f"refs<={self.max_input_references}")
+            bits.append(f"refs≤{self.max_input_references}")
         if self.max_n > 1:
-            bits.append(f"n<={self.max_n}")
+            bits.append(f"n≤{self.max_n}")
         caps = ", ".join(bits) if bits else "—"
         return f"{self.id} — {self.provider_id} — {self.price_text()} — {caps}"
+
+    @staticmethod
+    def capabilities_legend() -> str:
+        """Explanation of the capability abbreviations shown in the model list."""
+        return (
+            "refs — maximum reference images per request (for editing);\n"
+            "n — maximum images generated per request;\n"
+            "price — estimated range per image, commission included."
+        )
 
 
 @dataclass(slots=True)
