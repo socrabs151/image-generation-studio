@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, Qt, QThreadPool
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config import APP_ICON_PATH
 from app.core.errors import AppError
 from app.core.models import AccountInfo, GenerationRequest, ModelInfo
 from app.core.pricing import format_money, format_price, reserved_amount
@@ -37,6 +38,7 @@ from app.services.keystore import KeyStore
 from app.services.settings_store import SettingsStore
 from app.ui.dialogs.docs import DocsWindow
 from app.ui.dialogs.history import HistoryWindow
+from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
 from app.ui.panels.log import LogPanel
 from app.ui.panels.params import ParamsPanel
@@ -55,6 +57,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Image Generation Studio")
         self.resize(1150, 720)
+        if APP_ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
 
         self._pool = QThreadPool.globalInstance()
         self._worker: FunctionWorker | None = None
@@ -117,10 +121,10 @@ class MainWindow(QMainWindow):
 
         self.workspace.loadRequested.connect(self._load_reference)
         self.workspace.clearRequested.connect(self.workspace.reference.clear)
+        self.workspace.reference.referenceActivated.connect(self._open_reference_viewer)
+        self.workspace.result_viewer.imageActivated.connect(self._open_result_viewer)
         self.prompt.generateRequested.connect(self.generate)
         self.prompt.stopRequested.connect(self._cancel_generation)
-        self.workspace.result_viewer.saveRequested.connect(self._save_result_as)
-        self.workspace.result_viewer.copyRequested.connect(self._copy_result)
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
@@ -459,21 +463,21 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _save_result_as(self) -> None:
-        pixmap = self.workspace.result_viewer.current_pixmap()
+    def _open_reference_viewer(self) -> None:
+        pixmap = self.workspace.reference.pixmap()
         if pixmap is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save image", "", "PNG (*.png)")
-        if path:
-            pixmap.save(path)
-            self.log.info(f"Image saved: {path}")
+        window = ImageViewerWindow([pixmap], parent=self)
+        window.show()
+        window.raise_()
 
-    def _copy_result(self) -> None:
-        pixmap = self.workspace.result_viewer.current_pixmap()
-        if pixmap is None:
+    def _open_result_viewer(self, index: int) -> None:
+        images = self.workspace.result_viewer.images()
+        if not images:
             return
-        QGuiApplication.clipboard().setPixmap(pixmap)
-        self.log.info("Image copied to the clipboard.")
+        window = ImageViewerWindow(images, index, parent=self)
+        window.show()
+        window.raise_()
 
     def _update_session_spend(self, cost_rub: float | None) -> None:
         if cost_rub is not None:

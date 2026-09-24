@@ -26,6 +26,7 @@ class ReferenceArea(QLabel):
     """Drop target for a reference image."""
 
     referenceChanged = Signal()
+    referenceActivated = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -34,6 +35,7 @@ class ReferenceArea(QLabel):
         self.setMinimumHeight(140)
         self.setAcceptDrops(True)
         self._data: bytes | None = None
+        self._pixmap: QPixmap | None = None
         self._reset_text()
 
     def has_reference(self) -> bool:
@@ -44,9 +46,14 @@ class ReferenceArea(QLabel):
         """Raw bytes of the reference image, if any."""
         return self._data
 
+    def pixmap(self) -> QPixmap | None:
+        """Full-resolution pixmap of the reference image, if any."""
+        return self._pixmap
+
     def clear(self) -> None:
         """Forget the current reference image."""
         self._data = None
+        self._pixmap = None
         self.setPixmap(QPixmap())
         self._reset_text()
         self.referenceChanged.emit()
@@ -69,6 +76,7 @@ class ReferenceArea(QLabel):
             self.setText("Unsupported image format")
             return
         self._data = data
+        self._pixmap = QPixmap.fromImage(image)
         self._update_pixmap(image)
         self.referenceChanged.emit()
 
@@ -102,8 +110,11 @@ class ReferenceArea(QLabel):
         event.acceptProposedAction()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
-        # Ctrl+V support is handled by the parent window; clicking does nothing.
-        super().mousePressEvent(event)
+        # Clicking the reference opens it in a separate viewer window.
+        if event.button() == Qt.MouseButton.LeftButton and self.has_reference():
+            self.referenceActivated.emit()
+        else:
+            super().mousePressEvent(event)
 
 
 class WorkspacePanel(QFrame):

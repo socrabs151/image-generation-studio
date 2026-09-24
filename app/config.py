@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES_DIR = PROJECT_ROOT / "resources"
 THEMES_DIR = RESOURCES_DIR / "themes"
 ICONS_DIR = RESOURCES_DIR / "icons"
+APP_ICON_PATH = ICONS_DIR / "chernichka.png"
 DOCS_DIR = PROJECT_ROOT / "docs"
 DATA_DIR = PROJECT_ROOT / "data"
 

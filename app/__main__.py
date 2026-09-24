@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
-from app.config import APP_NAME
+from app.config import APP_ICON_PATH, APP_NAME
 from app.logging_setup import get_logger
 
 
@@ -18,6 +18,8 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setFont(QFont("Segoe UI", 9))
+    if APP_ICON_PATH.exists():
+        app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
 
     from app.ui.main_window import MainWindow
 
