@@ -41,6 +41,7 @@ class SettingsDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(self._tab_general(), "General")
+        tabs.addTab(self._tab_spending(), "Spending")
         tabs.addTab(self._tab_saving(), "Saving")
         tabs.addTab(self._tab_providers(), "Providers")
         tabs.addTab(self._tab_interface(), "Interface")
@@ -70,6 +71,26 @@ class SettingsDialog(QDialog):
         form.addRow("Default provider:", self.provider)
         form.addRow("Default model:", self.model)
         form.addRow("", self.auto_refresh)
+        return self._wrap(form)
+
+    def _tab_spending(self) -> QWidget:
+        form = QFormLayout()
+        self.confirm_threshold = QLineEdit(self._money(self._settings.confirm_threshold_rub))
+        self.session_limit = QLineEdit(self._money(self._settings.session_limit_rub))
+        self.generation_timeout = QLineEdit(str(self._settings.generation_timeout))
+
+        form.addRow("Confirm when reserved exceeds (₽, 0 = never):", self.confirm_threshold)
+        form.addRow("Session spend limit (₽, 0 = no limit):", self.session_limit)
+        form.addRow("Request timeout (s):", self.generation_timeout)
+
+        hint = QLabel(
+            "The provider freezes max_price×n before generating; the actual cost is "
+            "charged afterwards. A confirmation is shown when the reserved amount "
+            "exceeds the threshold."
+        )
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        form.addRow("", hint)
         return self._wrap(form)
 
     def _tab_saving(self) -> QWidget:
@@ -127,6 +148,10 @@ class SettingsDialog(QDialog):
             self.save_dir.setText(chosen)
 
     @staticmethod
+    def _money(value: float) -> str:
+        return f"{value:.2f}" if value else "0"
+
+    @staticmethod
     def _wrap(form: QFormLayout) -> QWidget:
         container = QWidget()
         form.setContentsMargins(12, 12, 12, 12)
@@ -154,5 +179,22 @@ class SettingsDialog(QDialog):
             save_dir=self.save_dir.text().strip(),
             history_limit=limit,
             theme=self.theme.currentText(),
+            confirm_threshold_rub=self._parse_float(self.confirm_threshold, 50.0),
+            session_limit_rub=self._parse_float(self.session_limit, 0.0),
+            generation_timeout=self._parse_int(self.generation_timeout, 180),
             providers=providers,
         )
+
+    @staticmethod
+    def _parse_float(field: QLineEdit, default: float) -> float:
+        try:
+            return max(0.0, float(field.text().strip() or default))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _parse_int(field: QLineEdit, default: int) -> int:
+        try:
+            return max(1, int(field.text().strip() or default))
+        except ValueError:
+            return default

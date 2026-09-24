@@ -41,3 +41,7 @@ class AuthenticationError(ProviderError):
 
 class ProviderTimeoutError(ProviderError):
     """The provider did not respond in time (HTTP 504)."""
+
+
+class CancelledError(AppError):
+    """The operation was cancelled by the user."""

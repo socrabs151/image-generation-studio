@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self._docs_window: DocsWindow | None = None
         self._history_window: HistoryWindow | None = None
         self._theme_actions: dict[str, QAction] = {}
+        self._session_spend = 0.0
 
         self._settings_store = SettingsStore()
         self._settings = self._settings_store.load()
@@ -118,6 +119,8 @@ class MainWindow(QMainWindow):
         self.workspace.clearRequested.connect(self.workspace.reference.clear)
         self.prompt.generateRequested.connect(self.generate)
         self.prompt.stopRequested.connect(self._cancel_generation)
+        self.workspace.result_viewer.saveRequested.connect(self._save_result_as)
+        self.workspace.result_viewer.copyRequested.connect(self._copy_result)
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
@@ -241,6 +244,8 @@ class MainWindow(QMainWindow):
         if not api_key:
             self._warn_no_key()
             return
+        if not self._can_spend():
+            return
 
         request = GenerationRequest(
             provider_id=provider_id,
@@ -253,6 +258,7 @@ class MainWindow(QMainWindow):
             background=self.params.selected_background(),
             seed=self.params.selected_seed(),
             input_references=self._collect_references(),
+            passthrough=self.params.selected_passthrough(),
         )
         try:
             self._generation.validate(request, model)
@@ -267,6 +273,8 @@ class MainWindow(QMainWindow):
                 f"Reserved amount: {format_money(reserved)} ₽ "
                 "(max×n, refunded after the response)."
             )
+            if not self._confirm_if_expensive(reserved):
+                return
 
         self.prompt.set_busy(True)
         self.log.info(f"Generating with {model.id}…")
@@ -277,6 +285,7 @@ class MainWindow(QMainWindow):
             Path(self._settings.save_dir),
             api_key,
             self._settings.history_limit,
+            self._settings.generation_timeout,
             on_done=self._on_generated,
             on_fail=self._on_generation_failed,
         )
@@ -378,10 +387,13 @@ class MainWindow(QMainWindow):
         pixmaps = [WorkspacePanel.bytes_to_pixmap(image.data) for image in outcome.result.images]
         self.workspace.show_images(pixmaps)
         cost = format_money(outcome.result.cost_rub)
-        self._status_cost.setText(f"Last generation: {cost} ₽")
+        self._update_session_spend(outcome.result.cost_rub)
         self.log.info(f"Done. Cost: {cost} ₽. Files saved: {len(outcome.file_paths)}.")
 
     def _on_generation_failed(self, message: str) -> None:
+        if "cancelled" in message.lower():
+            self.log.info("Generation cancelled.")
+            return
         self.workspace.show_error(message)
         self.log.error(f"Generation failed: {message}")
 
@@ -410,6 +422,66 @@ class MainWindow(QMainWindow):
         reference = self.workspace.reference
         data = reference.data()
         return [data] if reference.has_reference() and data else []
+
+    def _can_spend(self) -> bool:
+        """Whether the session spend limit allows another request."""
+        limit = self._settings.session_limit_rub
+        if limit <= 0:
+            return True
+        remaining = limit - self._session_spend
+        if remaining <= 0:
+            self.log.error(
+                f"Session spend limit reached: {format_money(self._session_spend)} ₽ "
+                f"of {format_money(limit)} ₽."
+            )
+            QMessageBox.warning(self, "Session limit", "The session spend limit is reached.")
+            return False
+        if remaining < self._session_spend + 1:
+            self.log.warning(f"Session spend remaining: {format_money(remaining)} ₽.")
+        return True
+
+    def _confirm_if_expensive(self, reserved: float) -> bool:
+        """Ask for confirmation when the reserved amount exceeds the threshold."""
+        threshold = self._settings.confirm_threshold_rub
+        if threshold <= 0 or reserved <= threshold:
+            return True
+        answer = QMessageBox.question(
+            self,
+            "Confirm generation",
+            f"The reserved amount is {format_money(reserved)} ₽, which exceeds "
+            f"the confirmation threshold of {format_money(threshold)} ₽.\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.log.warning("Generation cancelled by the user.")
+            return False
+        return True
+
+    def _save_result_as(self) -> None:
+        pixmap = self.workspace.result_viewer.current_pixmap()
+        if pixmap is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Save image", "", "PNG (*.png)")
+        if path:
+            pixmap.save(path)
+            self.log.info(f"Image saved: {path}")
+
+    def _copy_result(self) -> None:
+        pixmap = self.workspace.result_viewer.current_pixmap()
+        if pixmap is None:
+            return
+        QGuiApplication.clipboard().setPixmap(pixmap)
+        self.log.info("Image copied to the clipboard.")
+
+    def _update_session_spend(self, cost_rub: float | None) -> None:
+        if cost_rub is not None:
+            self._session_spend += cost_rub
+        self._status_cost.setText(
+            f"Last generation: {format_money(cost_rub)} ₽ · "
+            f"session spend: {format_money(self._session_spend)} ₽"
+        )
 
     def _apply_theme(self, theme: str) -> None:
         applied = apply_theme(QGuiApplication.instance(), theme)

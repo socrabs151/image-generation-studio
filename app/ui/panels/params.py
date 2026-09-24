@@ -46,6 +46,7 @@ class ParamsPanel(QFrame):
         self.seed = QLineEdit()
         self.seed.setPlaceholderText("random")
         self.background = self._combo()
+        self._passthrough_fields: dict[str, QLineEdit] = {}
 
         form.addRow("Count", self.n_field)
         form.addRow("Quality", self.quality)
@@ -54,6 +55,16 @@ class ParamsPanel(QFrame):
         form.addRow("Seed", self.seed)
         form.addRow("Background", self.background)
         layout.addLayout(form)
+
+        self._passthrough_title = QLabel("Provider-specific parameters")
+        self._passthrough_title.setObjectName("panelTitle")
+        self._passthrough_title.setVisible(False)
+        layout.addWidget(self._passthrough_title)
+
+        self._passthrough_form = QFormLayout()
+        self._passthrough_form.setContentsMargins(8, 4, 8, 4)
+        self._passthrough_form.setSpacing(4)
+        layout.addLayout(self._passthrough_form)
 
         self.hint = QLabel("")
         self.hint.setObjectName("hint")
@@ -71,6 +82,7 @@ class ParamsPanel(QFrame):
     def set_model(self, model: ModelInfo | None) -> None:
         """Populate the fields from a model's capabilities."""
         self.n_field.setValue(1)
+        self._clear_passthrough()
         if model is None:
             self.hint.setText("Select a model to see its parameters.")
             for widget in (self.quality, self.resolution, self.format, self.background):
@@ -83,10 +95,25 @@ class ParamsPanel(QFrame):
         self._fill(self.resolution, model.resolutions)
         self._fill(self.format, model.formats)
         self._fill(self.background, model.backgrounds)
+        self._build_passthrough(model.allowed_passthrough)
         self.hint.setText(
             f"Model supports: n≤{model.max_n}, references≤{model.max_input_references}. "
             "Unsupported fields stay empty."
         )
+
+    def _build_passthrough(self, names: list[str]) -> None:
+        self._passthrough_title.setVisible(bool(names))
+        for name in names:
+            field = QLineEdit()
+            field.setPlaceholderText("empty")
+            self._passthrough_fields[name] = field
+            self._passthrough_form.addRow(name, field)
+
+    def _clear_passthrough(self) -> None:
+        while self._passthrough_form.rowCount():
+            self._passthrough_form.removeRow(0)
+        self._passthrough_fields.clear()
+        self._passthrough_title.setVisible(False)
 
     @staticmethod
     def _fill(combo: QComboBox, values: list[str]) -> None:
@@ -135,3 +162,11 @@ class ParamsPanel(QFrame):
             return None
         text = combo.currentText()
         return None if text in ("", _NONE) else text
+
+    def selected_passthrough(self) -> dict:
+        """Provider-specific parameters entered by the user (non-empty only)."""
+        return {
+            name: field.text().strip()
+            for name, field in self._passthrough_fields.items()
+            if field.text().strip()
+        }

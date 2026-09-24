@@ -43,6 +43,13 @@ class Settings:
     save_dir: str = DEFAULT_SAVE_DIR
     auto_refresh_catalog: bool = True
     history_limit: int = 200
+    # Confirmation threshold: when the reserved amount exceeds this, the user is
+    # asked to confirm before generation. 0 disables the confirmation.
+    confirm_threshold_rub: float = 50.0
+    # Maximum spend per session in rubles; 0 disables the limit.
+    session_limit_rub: float = 0.0
+    # Provider request timeout in seconds.
+    generation_timeout: int = 180
     providers: dict[str, ProviderSettings] = field(
         default_factory=lambda: {
             "aitunnel": ProviderSettings(),
@@ -101,6 +108,9 @@ class SettingsStore:
             save_dir=raw.get("save_dir", DEFAULT_SAVE_DIR),
             auto_refresh_catalog=bool(raw.get("auto_refresh_catalog", True)),
             history_limit=int(raw.get("history_limit", 200)),
+            confirm_threshold_rub=float(raw.get("confirm_threshold_rub", 50.0)),
+            session_limit_rub=float(raw.get("session_limit_rub", 0.0)),
+            generation_timeout=int(raw.get("generation_timeout", 180)),
             providers=providers,
         )
 

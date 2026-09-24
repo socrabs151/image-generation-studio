@@ -11,16 +11,15 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from app.core.errors import AppError
+from app.ui.widgets.result_viewer import ResultViewer
 
 
 class ReferenceArea(QLabel):
@@ -166,61 +165,24 @@ class WorkspacePanel(QFrame):
         label.setObjectName("panelTitle")
         column.addWidget(label)
 
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setObjectName("resultScroll")
-
-        self._result_host = QWidget()
-        self._result_grid = QGridLayout(self._result_host)
-        self._result_grid.setContentsMargins(4, 4, 4, 4)
-        self._result_grid.setSpacing(6)
-        self._scroll.setWidget(self._result_host)
-        column.addWidget(self._scroll, stretch=1)
-
-        self._placeholder = QLabel("Generated images will appear here")
-        self._placeholder.setObjectName("dropArea")
-        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._result_grid.addWidget(self._placeholder, 0, 0)
+        self.result_viewer = ResultViewer()
+        column.addWidget(self.result_viewer, stretch=1)
         return box
 
     def show_images(self, images: list[QPixmap]) -> None:
-        """Replace the result grid with the given images."""
-        self._clear_result()
-        if not images:
-            self._placeholder = QLabel("No result")
-            self._placeholder.setObjectName("dropArea")
-            self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._result_grid.addWidget(self._placeholder, 0, 0)
-            return
-        columns = 2 if len(images) > 1 else 1
-        for index, pixmap in enumerate(images):
-            view = QLabel()
-            view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            view.setPixmap(
-                pixmap.scaled(
-                    420,
-                    420,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-            self._result_grid.addWidget(view, index // columns, index % columns)
+        """Show the generated images in the result viewer."""
+        self.result_viewer.set_images(images)
 
     def show_error(self, message: str) -> None:
         """Show an error message in the result area."""
-        self._clear_result()
-        label = QLabel(message)
-        label.setObjectName("dropArea")
-        label.setWordWrap(True)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._result_grid.addWidget(label, 0, 0)
-
-    def _clear_result(self) -> None:
-        while self._result_grid.count():
-            item = self._result_grid.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+        self.result_viewer.set_images([])
+        placeholder = QLabel(message)
+        placeholder.setObjectName("dropArea")
+        placeholder.setWordWrap(True)
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # ResultViewer exposes its view label for transient messages.
+        self.result_viewer._view.setText(message)
+        placeholder.deleteLater()
 
     @staticmethod
     def bytes_to_pixmap(data: bytes) -> QPixmap:

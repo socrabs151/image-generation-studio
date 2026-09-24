@@ -71,3 +71,14 @@ def test_valid_request_passes(service: GenerationService) -> None:
         _request(n=2, background="transparent", resolution="1K", aspect_ratio="16:9"),
         _model(),
     )
+
+
+def test_reference_format_rejected(service: GenerationService) -> None:
+    # Plain text bytes do not look like a supported image format.
+    with pytest.raises(BadParameterError):
+        service.validate(_request(input_references=[b"not an image"]), _model())
+
+
+def test_reference_format_accepted(service: GenerationService) -> None:
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    service.validate(_request(input_references=[png_header]), _model())

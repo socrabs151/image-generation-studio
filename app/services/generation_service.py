@@ -8,11 +8,12 @@ must never be repeated silently, because each attempt spends real money.
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.config import MAX_REFERENCE_BYTES
-from app.core.errors import BadParameterError
+from app.config import MAX_REFERENCE_BYTES, REFERENCE_FORMATS
+from app.core.errors import BadParameterError, CancelledError
 from app.core.models import GenerationRequest, GenerationResult, ModelInfo
 from app.core.pricing import reserved_amount
 from app.providers import create_provider
@@ -24,6 +25,21 @@ _EXTENSIONS = {
     "image/webp": "webp",
     "image/gif": "gif",
 }
+
+_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"RIFF", "webp"),
+    (b"GIF8", "gif"),
+)
+
+
+def detect_format(data: bytes) -> str | None:
+    """Return the image format ('png', 'jpeg', 'webp', 'gif') by magic bytes."""
+    for signature, fmt in _MAGIC:
+        if data.startswith(signature):
+            return fmt
+    return None
 
 
 @dataclass(slots=True)
@@ -68,6 +84,9 @@ class GenerationService:
                 raise BadParameterError(
                     f"Reference image exceeds {MAX_REFERENCE_BYTES // (1024 * 1024)} MB."
                 )
+            if detect_format(reference) not in REFERENCE_FORMATS:
+                allowed = ", ".join(REFERENCE_FORMATS)
+                raise BadParameterError(f"Unsupported reference format. Allowed: {allowed}.")
         self._validate_choice(request.background, model.backgrounds, "background")
         self._validate_choice(request.resolution, model.resolutions, "resolution")
         self._validate_choice(request.aspect_ratio, model.aspect_ratios, "aspect_ratio")
@@ -80,9 +99,12 @@ class GenerationService:
         api_key: str,
         history_limit: int = 200,
         timeout: int = 180,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> GenerationOutcome:
         """Run the request through the provider, save files and record history."""
         self.validate(request, model)
+        if cancel_check is not None and cancel_check():
+            raise CancelledError()
         provider = create_provider(request.provider_id, api_key)
         try:
             result = provider.generate(request, timeout=timeout)
@@ -100,6 +122,8 @@ class GenerationService:
                 limit=history_limit,
             )
             raise
+        if cancel_check is not None and cancel_check():
+            raise CancelledError()
 
         file_paths = self._save_images(result, save_dir, request)
         self._history.add(
