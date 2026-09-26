@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from app.core.errors import BadParameterError
-from app.core.models import GenerationRequest, ModelInfo
-from app.services.generation_service import GenerationService
+from app.core.models import GeneratedImage, GenerationRequest, GenerationResult, ModelInfo
+from app.services.generation_service import GenerationService, safe_filename_component
 from app.services.history_store import HistoryStore
 
 
@@ -82,3 +82,27 @@ def test_reference_format_rejected(service: GenerationService) -> None:
 def test_reference_format_accepted(service: GenerationService) -> None:
     png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
     service.validate(_request(input_references=[png_header]), _model())
+
+
+def test_namespaced_model_id_becomes_a_flat_file_name(
+    service: GenerationService, tmp_path: Path
+) -> None:
+    result = GenerationResult(
+        images=[GeneratedImage(data=b"\x89PNG\r\n\x1a\n" + b"0" * 8, media_type="image/png")],
+        cost_rub=2.5,
+        balance=None,
+        model="x-ai/grok-imagine-image",
+    )
+    paths = service._save_images(result, tmp_path, _request())
+
+    assert len(paths) == 1
+    saved = Path(paths[0])
+    assert saved.exists()
+    assert saved.parent == tmp_path
+    assert saved.name.endswith("_x-ai-grok-imagine-image.png")
+
+
+def test_reserved_file_name_falls_back(service: GenerationService) -> None:
+    assert safe_filename_component("CON") == "model"
+    assert safe_filename_component("///") == "model"
+    assert safe_filename_component("openai/gpt-image-1.5") == "openai-gpt-image-1.5"

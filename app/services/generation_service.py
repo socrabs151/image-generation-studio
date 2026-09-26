@@ -8,6 +8,7 @@ must never be repeated silently, because each attempt spends real money.
 from __future__ import annotations
 
 import base64
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,25 @@ _MAGIC = (
     (b"RIFF", "webp"),
     (b"GIF8", "gif"),
 )
+
+# Model ids may be namespaced ("x-ai/grok-imagine-image"), and a slash in a file name
+# would be read as a directory separator on Windows.
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+_RESERVED_FILENAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
+_MAX_MODEL_NAME_LENGTH = 60
+
+
+def safe_filename_component(value: str, fallback: str = "model") -> str:
+    """Turn an arbitrary identifier into a file name that is safe on Windows."""
+    cleaned = _UNSAFE_FILENAME_CHARS.sub("-", value).strip("-._")
+    cleaned = re.sub(r"-{2,}", "-", cleaned)[:_MAX_MODEL_NAME_LENGTH].strip("-._")
+    if not cleaned or cleaned.upper() in _RESERVED_FILENAMES:
+        return fallback
+    return cleaned
 
 
 def detect_format(data: bytes) -> str | None:
@@ -147,11 +167,12 @@ class GenerationService:
     ) -> list[str]:
         save_dir.mkdir(parents=True, exist_ok=True)
         stamp = now_iso().replace(":", "-")
+        model = safe_filename_component(result.model)
         paths: list[str] = []
         for index, image in enumerate(result.images, 1):
             extension = _EXTENSIONS.get(image.media_type or "", "png")
             suffix = f"_{index}" if len(result.images) > 1 else ""
-            path = save_dir / f"{stamp}_{result.model}{suffix}.{extension}"
+            path = save_dir / f"{stamp}_{model}{suffix}.{extension}"
             path.write_bytes(image.data)
             paths.append(str(path))
         return paths
