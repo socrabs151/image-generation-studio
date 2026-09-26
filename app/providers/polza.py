@@ -13,13 +13,15 @@ ratio chosen in the interface would be silently dropped. The media endpoint spea
 the same parameter names the catalog advertises and also accepts reference images.
 
 The media endpoint answers with a task that has to be polled until it is
-``completed``; the real cost is returned in ``usage.cost_rub``.
+``completed``; the real cost is returned in ``usage.cost_rub``. A task yields one
+image, so a request for several images runs several tasks.
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import replace
 
 import requests
 
@@ -52,8 +54,12 @@ BALANCE_URL = f"{API_ROOT}/v2/balance"
 CATALOG_PAGE_SIZE = 100
 POLL_INTERVAL = 4.0
 
-# The media endpoint documents ``max_images`` in the range 1..6.
+# A media task produces a single image, so ``n`` is served by running ``n`` tasks.
+# The cap mirrors the ``max_images`` ceiling documented for the endpoint.
 MAX_IMAGES_PER_REQUEST = 6
+
+# The API documents the seed range as 1..4294967295.
+MAX_SEED = 4294967295
 
 # Catalog parameter names already covered by GenerationRequest fields; everything
 # else the model advertises is offered to the user as a passthrough field.
@@ -146,8 +152,57 @@ class PolzaProvider(Provider):
         timeout: int = 180,
         cancel_check: Callable[[], bool] | None = None,
     ) -> GenerationResult:
-        """Run a generation request and return the images plus the actual cost."""
+        """Run a generation request and return the images plus the actual cost.
+
+        A media task yields exactly one image and the catalog advertises no
+        multi-image parameter, so ``n`` is served by running ``n`` tasks. The price
+        of every task is summed, which matches the amount the interface reserves
+        before the request.
+        """
         self._require_key()
+        if request.n <= 1:
+            return self._run_task(request, timeout, cancel_check)
+        return self._run_tasks(request, timeout, cancel_check)
+
+    def _run_tasks(
+        self,
+        request: GenerationRequest,
+        timeout: int,
+        cancel_check: Callable[[], bool] | None,
+    ) -> GenerationResult:
+        """Run one media task per requested image and collect all results."""
+        images: list[GeneratedImage] = []
+        cost = 0.0
+        priced = False
+        model = request.model
+        for index in range(request.n):
+            if cancel_check is not None and cancel_check():
+                raise CancelledError()
+            # A fixed seed would make every task return the same picture, so each
+            # image after the first is drawn from the next seed value.
+            task = replace(request, n=1, seed=_seed_for(request.seed, index))
+            outcome = self._run_task(task, timeout, cancel_check)
+            images.extend(outcome.images)
+            if outcome.cost_rub is not None:
+                cost += outcome.cost_rub
+                priced = True
+            model = outcome.model or model
+        if not images:
+            raise ConfigError("The provider returned no images.")
+        return GenerationResult(
+            images=images,
+            cost_rub=cost if priced else None,
+            balance=None,
+            model=model,
+        )
+
+    def _run_task(
+        self,
+        request: GenerationRequest,
+        timeout: int,
+        cancel_check: Callable[[], bool] | None,
+    ) -> GenerationResult:
+        """Run a single media task and wait for its result."""
         payload = self._post(MEDIA_URL, self._build_payload(request), timeout)
         if _is_task(payload):
             payload = self._await_media(str(payload.get("id")), timeout, cancel_check)
@@ -156,7 +211,7 @@ class PolzaProvider(Provider):
     @staticmethod
     def _build_payload(request: GenerationRequest) -> dict:
         """Translate a :class:`GenerationRequest` into a media-endpoint payload."""
-        image_input: dict = {"prompt": request.prompt, "max_images": request.n}
+        image_input: dict = {"prompt": request.prompt}
         optional = {
             "aspect_ratio": request.aspect_ratio,
             "image_resolution": request.resolution,
@@ -327,6 +382,13 @@ def _price_range(pricing) -> tuple[float | None, float | None]:
     if per_request is not None:
         return per_request, per_request
     return None, None
+
+
+def _seed_for(seed: int | None, index: int) -> int | None:
+    """Return the seed for the ``index``-th image of a multi-image request."""
+    if seed is None:
+        return None
+    return 1 + (seed - 1 + index) % MAX_SEED
 
 
 def _is_task(payload: dict) -> bool:

@@ -143,7 +143,6 @@ def test_build_payload_uses_catalog_parameter_names() -> None:
     assert body["async"] is False
     image_input = body["input"]
     assert image_input["prompt"] == "a cat"
-    assert image_input["max_images"] == 3
     assert image_input["aspect_ratio"] == "16:9"
     assert image_input["image_resolution"] == "2K"
     assert image_input["quality"] == "high"
@@ -167,6 +166,99 @@ def test_build_payload_encodes_references_as_base64() -> None:
     assert body["input"]["images"] == [
         {"type": "base64", "data": base64.b64encode(PNG).decode("ascii")}
     ]
+
+
+def test_build_payload_omits_a_multi_image_field() -> None:
+    # One media task returns one image, so no count field is sent at all.
+    body = PolzaProvider._build_payload(_request(n=4))
+
+    assert "max_images" not in body["input"]
+    assert "n" not in body["input"]
+
+
+# ---------- several images ----------
+def test_several_images_run_one_task_each(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = PolzaProvider("key")
+    seen: list[dict] = []
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        seen.append(body)
+        return {
+            "status": "completed",
+            "model": body["model"],
+            "data": {"b64_json": base64.b64encode(PNG).decode("ascii")},
+            "usage": {"cost_rub": 2.9},
+        }
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    result = provider.generate(_request(n=4), timeout=1)
+
+    assert len(seen) == 4
+    assert len(result.images) == 4
+    assert result.cost_rub == pytest.approx(11.6)
+
+
+def test_several_images_shift_the_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = PolzaProvider("key")
+    seeds: list[int | None] = []
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        seeds.append(body["input"].get("seed"))
+        return {
+            "status": "completed",
+            "model": body["model"],
+            "data": {"b64_json": base64.b64encode(PNG).decode("ascii")},
+            "usage": {"cost_rub": 2.9},
+        }
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    provider.generate(_request(n=3, seed=100), timeout=1)
+
+    assert seeds == [100, 101, 102]
+
+
+def test_single_image_runs_one_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = PolzaProvider("key")
+    calls: list[dict] = []
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        calls.append(body)
+        return {
+            "status": "completed",
+            "model": body["model"],
+            "data": {"b64_json": base64.b64encode(PNG).decode("ascii")},
+            "usage": {"cost_rub": 2.9},
+        }
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    result = provider.generate(_request(n=1, seed=7), timeout=1)
+
+    assert len(calls) == 1
+    assert len(result.images) == 1
+    assert result.cost_rub == 2.9
+
+
+def test_cancel_stops_before_the_next_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.errors import CancelledError
+
+    provider = PolzaProvider("key")
+    calls: list[dict] = []
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        calls.append(body)
+        return {
+            "status": "completed",
+            "model": body["model"],
+            "data": {"b64_json": base64.b64encode(PNG).decode("ascii")},
+            "usage": {"cost_rub": 2.9},
+        }
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    # Cancel after the first task has been paid for and produced an image.
+    with pytest.raises(CancelledError):
+        provider.generate(_request(n=4), timeout=1, cancel_check=lambda: len(calls) >= 1)
+
+    assert len(calls) == 1
 
 
 # ---------- results ----------
