@@ -148,6 +148,30 @@ def test_required_ignores_reference_images() -> None:
     assert model.required_parameters == ["prompt", "upscale_factor"]
 
 
+def test_upscale_model_stays_in_the_catalog() -> None:
+    # An upscaler is usable: it just needs an uploaded picture instead of a prompt.
+    entry = _entry(
+        id="topaz/image-upscale",
+        parameters={
+            "images": {"required": True, "min": 1, "max": 1},
+            "upscale_factor": {"required": True, "values": ["2", "4"]},
+        },
+    )
+    model = PolzaProvider._parse_model(entry)
+
+    assert model.requires_reference is True
+    assert model.supports_generation is False
+    assert model.supports_edit is True
+    assert model.max_input_references == 1
+    assert model.allowed_passthrough == ["upscale_factor"]
+
+
+def test_model_without_a_required_image_needs_no_reference() -> None:
+    model = PolzaProvider._parse_model(_entry())
+
+    assert model.requires_reference is False
+
+
 def test_parse_model_without_prompt_is_not_a_generation_model() -> None:
     model = PolzaProvider._parse_model(
         _entry(parameters={"images": {"max": 1}, "upscale_factor": {"values": ["2"]}})

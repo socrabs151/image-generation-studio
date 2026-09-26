@@ -33,6 +33,9 @@ class ModelInfo:
     # An empty request is rejected by the provider and would still be charged, so
     # the request is validated before it is sent.
     required_parameters: list[str] = field(default_factory=list)
+    # A model that only transforms an uploaded picture, for example an upscaler:
+    # it needs a reference image instead of a description.
+    requires_reference: bool = False
 
     def missing_required(self, values: dict[str, object]) -> list[str]:
         """Required parameters that have no value in ``values``.

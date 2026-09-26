@@ -93,6 +93,11 @@ class GenerationService:
         if request.n > model.max_n:
             raise BadParameterError(f"This model allows at most {model.max_n} image(s).")
         references = request.input_references
+        if model.requires_reference and not references:
+            raise BadParameterError(
+                f'Model {model.id} transforms an uploaded image, so it needs a '
+                "reference image. Load one in the workspace panel."
+            )
         if references and not model.supports_edit:
             raise BadParameterError("This model does not support reference images.")
         if references and len(references) > model.max_input_references:

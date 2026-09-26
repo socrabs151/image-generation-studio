@@ -123,17 +123,15 @@ class ParamsPanel(QFrame):
         missing = [
             name for name in model.required_parameters if name in _FIELD_LABELS
         ]
+        parts = [f"n≤{model.max_n}", f"references≤{model.max_input_references}"]
+        if model.requires_reference:
+            parts.append("a reference image is required")
         if missing:
             labels = ", ".join(_FIELD_LABELS[name] for name in missing)
-            self.hint.setText(
-                f"Model supports: n≤{model.max_n}, references≤{model.max_input_references}. "
-                f"Required: {labels}."
-            )
+            parts.append(f"required: {labels}")
         else:
-            self.hint.setText(
-                f"Model supports: n≤{model.max_n}, references≤{model.max_input_references}. "
-                "Unsupported fields stay empty."
-            )
+            parts.append("unsupported fields stay empty")
+        self.hint.setText("Model supports: " + ", ".join(parts) + ".")
 
     def _build_passthrough(self, names: list[str]) -> None:
         self._passthrough_title.setVisible(bool(names))

@@ -140,6 +140,7 @@ class PolzaProvider(Provider):
             supports_edit=max_references > 0,
             max_n=MAX_IMAGES_PER_REQUEST,
             max_input_references=max_references,
+            requires_reference=bool(images.get("required")),
             required_parameters=_required(parameters),
             allowed_passthrough=[
                 name for name in parameters if name not in _MAPPED_PARAMETERS

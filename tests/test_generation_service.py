@@ -144,3 +144,18 @@ def test_no_required_parameters_keeps_optional_fields_empty(
 ) -> None:
     model = _model(aspect_ratios=["1:1", "16:9"], required_parameters=[])
     service.validate(_request(), model)
+
+
+def test_model_needing_a_reference_is_rejected_without_one(
+    service: GenerationService,
+) -> None:
+    model = _model(requires_reference=True, max_input_references=1, supports_edit=True)
+    with pytest.raises(BadParameterError) as info:
+        service.validate(_request(), model)
+    assert "reference image" in str(info.value)
+
+
+def test_model_needing_a_reference_accepts_one(service: GenerationService) -> None:
+    model = _model(requires_reference=True, max_input_references=1, supports_edit=True)
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    service.validate(_request(input_references=[png_header]), model)
