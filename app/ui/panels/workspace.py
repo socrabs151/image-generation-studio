@@ -186,14 +186,7 @@ class WorkspacePanel(QFrame):
 
     def show_error(self, message: str) -> None:
         """Show an error message in the result area."""
-        self.result_viewer.set_images([])
-        placeholder = QLabel(message)
-        placeholder.setObjectName("dropArea")
-        placeholder.setWordWrap(True)
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # ResultViewer exposes its view label for transient messages.
-        self.result_viewer._view.setText(message)
-        placeholder.deleteLater()
+        self.result_viewer.set_error(message)
 
     @staticmethod
     def bytes_to_pixmap(data: bytes) -> QPixmap:

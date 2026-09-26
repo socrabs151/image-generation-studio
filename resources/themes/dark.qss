@@ -74,8 +74,45 @@ QTextEdit, QPlainTextEdit {
 QStatusBar { background-color: #27273a; color: #9a9ab0; }
 QSplitter::handle { background-color: #33334a; }
 QScrollArea { border: none; }
-QScrollBar:vertical { background: transparent; width: 8px; }
-QScrollBar::handle:vertical { background: #4a4a66; border-radius: 4px; }
+
+/* Полосы прокрутки: без стрелок, узкая скруглённая ручка с подсветкой */
+QScrollBar:vertical, QScrollBar:horizontal {
+    background: transparent;
+    border: none;
+    margin: 0;
+}
+QScrollBar:vertical { width: 10px; }
+QScrollBar:horizontal { height: 10px; }
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0;
+    height: 0;
+    border: none;
+    background: none;
+}
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+QScrollBar::handle:vertical {
+    background: #4a4a66;
+    border-radius: 5px;
+    min-height: 36px;
+}
+QScrollBar::handle:horizontal {
+    background: #4a4a66;
+    border-radius: 5px;
+    min-width: 36px;
+}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: #5e5e86; }
+QScrollBar::handle:vertical:active, QScrollBar::handle:horizontal:active { background: #6c8cff; }
+QScrollBar::corner { background: transparent; }
+QScrollArea#resultScroll > QWidget > QWidget { background-color: #1e1e2e; }
+QLabel#canvas { background-color: #1b1b29; border: none; }
+
+QLabel#resultThumb {
+    background-color: #1b1b29;
+    border: 1px solid #3a3a52;
+    border-radius: 6px;
+}
+QLabel#resultThumb:hover { border-color: #6c8cff; background-color: #232338; }
+QLabel#resultError { color: #f87171; padding: 6px; }
 
 /* Числовое поле «Кол-во»: своя обёртка вместо QSpinBox */
 QFrame#numberField {
