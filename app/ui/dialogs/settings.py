@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.providers import provider_ids
+from app.providers import provider_choices
 from app.services.settings_store import Settings
 
 
@@ -61,8 +61,9 @@ class SettingsDialog(QDialog):
     # ---------- tabs ----------
     def _tab_general(self) -> QWidget:
         self.provider = QComboBox()
-        self.provider.addItems(provider_ids())
-        self.provider.setCurrentText(self._settings.default_provider)
+        for provider_id, name in provider_choices():
+            self.provider.addItem(name, provider_id)
+        self._select_provider(self._settings.default_provider)
         self.model = QLineEdit(self._settings.default_model)
         self.auto_refresh = QCheckBox("Refresh the model catalog on startup")
         self.auto_refresh.setChecked(self._settings.auto_refresh_catalog)
@@ -72,6 +73,10 @@ class SettingsDialog(QDialog):
         form.addRow("Default model:", self.model)
         form.addRow("", self.auto_refresh)
         return self._wrap(form)
+
+    def _select_provider(self, provider_id: str) -> None:
+        index = self.provider.findData(provider_id)
+        self.provider.setCurrentIndex(index if index >= 0 else 0)
 
     def _tab_spending(self) -> QWidget:
         form = QFormLayout()
@@ -118,13 +123,14 @@ class SettingsDialog(QDialog):
 
     def _tab_providers(self) -> QWidget:
         form = QFormLayout()
-        for provider_id in provider_ids():
+        for provider_id, name in provider_choices():
             field = QLineEdit()
             field.setEchoMode(QLineEdit.EchoMode.Password)
+            field.setPlaceholderText(f"{name} API key")
             settings = self._settings.providers.get(provider_id)
             field.setText(settings.api_key if settings else "")
             self._key_fields[provider_id] = field
-            form.addRow(f"{provider_id} API key:", field)
+            form.addRow(f"{name}:", field)
         hint = QLabel("Keys are stored locally in data/settings.json and never committed.")
         hint.setObjectName("hint")
         hint.setWordWrap(True)
@@ -173,7 +179,7 @@ class SettingsDialog(QDialog):
             limit = self._settings.history_limit
         return replace(
             self._settings,
-            default_provider=self.provider.currentText(),
+            default_provider=self.provider.currentData(),
             default_model=self.model.text().strip(),
             auto_refresh_catalog=self.auto_refresh.isChecked(),
             save_dir=self.save_dir.text().strip(),

@@ -12,12 +12,11 @@ charges the actual cost afterwards; the real amount is returned in ``usage.cost_
 
 from __future__ import annotations
 
-import base64
-import json
+from collections.abc import Callable
 
 import requests
 
-from app.core.errors import ConfigError
+from app.core.errors import CancelledError, ConfigError
 from app.core.models import (
     AccountInfo,
     GeneratedImage,
@@ -25,31 +24,20 @@ from app.core.models import (
     GenerationResult,
     ModelInfo,
 )
-from app.providers.base import Provider, raise_for_status, wrap_network_error
+from app.providers.base import Provider, wrap_network_error
+from app.providers.http_utils import (
+    USER_AGENT,
+    as_float,
+    auth_headers,
+    decode_base64,
+    ensure_ok,
+    parse_json,
+    to_data_url,
+)
 
 CATALOG_URL = "https://api.aitunnel.ru/public/aitunnel/models/images"
 GENERATION_URL = "https://api.aitunnel.ru/v1/images/generations"
 ACCOUNT_URL = "https://api.aitunnel.ru/v1/aitunnel"
-USER_AGENT = "image-generation-studio/0.1"
-
-_MEDIA_TYPES = (
-    (b"\x89PNG", "image/png"),
-    (b"\xff\xd8\xff", "image/jpeg"),
-    (b"GIF8", "image/gif"),
-)
-
-
-def _guess_media_type(data: bytes) -> str:
-    """Guess an image MIME type from its magic bytes (default: png)."""
-    for prefix, media_type in _MEDIA_TYPES:
-        if data.startswith(prefix):
-            return media_type
-    return "image/png"
-
-
-def _to_data_url(data: bytes) -> str:
-    """Encode raw image bytes as a ``data:`` URI accepted by ``input_references``."""
-    return f"data:{_guess_media_type(data)};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 class AitunnelProvider(Provider):
@@ -70,10 +58,8 @@ class AitunnelProvider(Provider):
             )
         except requests.RequestException as exc:
             raise wrap_network_error(exc) from exc
-        self._ensure_ok(response)
-        payload = self._parse_json(response)
-        if not isinstance(payload, dict):
-            raise ConfigError("Unexpected catalog response format.")
+        ensure_ok(response)
+        payload = parse_json(response)
         return [self._parse_model(name, entry) for name, entry in payload.items()]
 
     @staticmethod
@@ -82,8 +68,8 @@ class AitunnelProvider(Provider):
             id=name,
             provider_id=AitunnelProvider.id,
             description=entry.get("description") or "",
-            min_price=_as_float(entry.get("min_price_per_image")),
-            max_price=_as_float(entry.get("max_price_per_image")),
+            min_price=as_float(entry.get("min_price_per_image")),
+            max_price=as_float(entry.get("max_price_per_image")),
             resolutions=list(entry.get("supported_resolutions") or []),
             aspect_ratios=list(entry.get("supported_aspect_ratios") or []),
             qualities=list(entry.get("supported_quality") or []),
@@ -98,25 +84,32 @@ class AitunnelProvider(Provider):
         )
 
     # ---------- generation ----------
-    def generate(self, request: GenerationRequest, timeout: int = 180) -> GenerationResult:
-        """Run a synchronous image-generation request."""
+    def generate(
+        self,
+        request: GenerationRequest,
+        timeout: int = 180,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> GenerationResult:
+        """Run a synchronous image-generation request.
+
+        The endpoint answers in a single response, so ``cancel_check`` is only
+        consulted once, right before the request is sent.
+        """
         self._require_key()
+        if cancel_check is not None and cancel_check():
+            raise CancelledError()
         body = self._build_payload(request)
         try:
             response = requests.post(
                 GENERATION_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": USER_AGENT,
-                },
+                headers=auth_headers(self.api_key, json_body=True),
                 json=body,
                 timeout=timeout,
             )
         except requests.RequestException as exc:
             raise wrap_network_error(exc) from exc
-        self._ensure_ok(response)
-        payload = self._parse_json(response)
+        ensure_ok(response)
+        payload = parse_json(response)
 
         images: list[GeneratedImage] = []
         for item in payload.get("data") or []:
@@ -125,7 +118,7 @@ class AitunnelProvider(Provider):
                 continue
             images.append(
                 GeneratedImage(
-                    data=base64.b64decode(encoded),
+                    data=decode_base64(encoded),
                     media_type=item.get("media_type"),
                 )
             )
@@ -135,8 +128,8 @@ class AitunnelProvider(Provider):
         usage = payload.get("usage") or {}
         return GenerationResult(
             images=images,
-            cost_rub=_as_float(usage.get("cost_rub")),
-            balance=_as_float(usage.get("balance")),
+            cost_rub=as_float(usage.get("cost_rub")),
+            balance=as_float(usage.get("balance")),
             model=payload.get("model") or request.model,
         )
 
@@ -158,7 +151,7 @@ class AitunnelProvider(Provider):
                 body[key] = value
         if request.input_references:
             body["input_references"] = [
-                {"type": "image_url", "image_url": {"url": _to_data_url(ref)}}
+                {"type": "image_url", "image_url": {"url": to_data_url(ref)}}
                 for ref in request.input_references
             ]
         body.update(request.passthrough)
@@ -174,27 +167,24 @@ class AitunnelProvider(Provider):
             try:
                 response = requests.get(
                     f"{ACCOUNT_URL}/{name}",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "User-Agent": USER_AGENT,
-                    },
+                    headers=auth_headers(self.api_key),
                     timeout=timeout,
                 )
             except requests.RequestException as exc:
                 raise wrap_network_error(exc) from exc
-            self._ensure_ok(response)
-            payloads[name] = self._parse_json(response)
+            ensure_ok(response)
+            payloads[name] = parse_json(response)
 
         balance = payloads.get("balance") or {}
         key = payloads.get("key") or {}
         me = payloads.get("me") or {}
-        info.balance = _as_float(balance.get("balance"))
+        info.balance = as_float(balance.get("balance"))
         info.email = me.get("email")
-        budget = _as_float(balance.get("budget"))
+        budget = as_float(balance.get("budget"))
         if budget is not None:
             info.budget_remaining = budget
             if isinstance(key.get("budget"), dict):
-                info.budget_initial = _as_float(key["budget"].get("initial"))
+                info.budget_initial = as_float(key["budget"].get("initial"))
         allowed = key.get("allowed_models")
         if allowed:
             info.limits["allowed_models"] = list(allowed)
@@ -204,38 +194,3 @@ class AitunnelProvider(Provider):
     def _require_key(self) -> None:
         if self.requires_key and not self.api_key:
             raise ConfigError("API key is not set for this provider.")
-
-    @staticmethod
-    def _ensure_ok(response: requests.Response) -> None:
-        if response.status_code >= 400:
-            raise_for_status(response.status_code, _error_detail(response))
-
-    @staticmethod
-    def _parse_json(response: requests.Response) -> dict:
-        try:
-            return response.json()
-        except json.JSONDecodeError as exc:
-            raise ConfigError(f"Invalid JSON response: {exc}") from exc
-
-
-def _as_float(value) -> float | None:
-    """Convert a value to float, returning ``None`` for empty or invalid input."""
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _error_detail(response: requests.Response) -> str:
-    """Extract a short human-readable error message from a response."""
-    try:
-        payload = response.json()
-    except ValueError:
-        return response.text[:300]
-    if isinstance(payload, dict):
-        for key in ("error", "message", "detail"):
-            if payload.get(key):
-                return str(payload[key])[:300]
-    return str(payload)[:300]

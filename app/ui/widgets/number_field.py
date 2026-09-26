@@ -75,6 +75,16 @@ class NumberField(QFrame):
         """Set the value, clamped to the allowed range."""
         self.edit.setText(str(self._clamp(value)))
 
+    def setMaximum(self, maximum: int) -> None:  # noqa: N802 - Qt API
+        """Lower the upper bound, for example to the limit of the selected model."""
+        self._max = max(self._min, maximum)
+        self.edit.setValidator(QIntValidator(self._min, self._max, self))
+        self.setValue(self.value())
+
+    def maximum(self) -> int:
+        """The current upper bound."""
+        return self._max
+
     def _step(self, delta: int) -> None:
         new_value = self._clamp(self.value() + delta)
         if new_value != self.value():

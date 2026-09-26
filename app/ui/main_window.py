@@ -30,7 +30,7 @@ from app.core.errors import AppError
 from app.core.models import AccountInfo, GenerationRequest, ModelInfo
 from app.core.pricing import format_money, format_price, reserved_amount
 from app.logging_setup import get_logger
-from app.providers import create_provider
+from app.providers import create_provider, display_name, provider_choices
 from app.services.catalog_service import CatalogResult, CatalogService
 from app.services.generation_service import GenerationOutcome, GenerationService
 from app.services.history_store import HistoryStore
@@ -132,6 +132,17 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
+        row.addWidget(QLabel("Provider:"))
+        self._provider_combo = QComboBox()
+        for provider_id, name in provider_choices():
+            self._provider_combo.addItem(name, provider_id)
+        self._select_provider(self._settings.default_provider)
+        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        self._provider_combo.setToolTip(
+            "Aggregator used for the catalog, the balance and generation."
+        )
+        row.addWidget(self._provider_combo)
+
         row.addWidget(QLabel("Balance:"))
         self._balance_label = QLabel("—")
         row.addWidget(self._balance_label)
@@ -141,6 +152,36 @@ class MainWindow(QMainWindow):
         row.addWidget(QPushButton("Settings", clicked=self.open_settings))
         row.addWidget(QPushButton("History", clicked=self.open_history))
         return bar
+
+    def _select_provider(self, provider_id: str) -> None:
+        """Point the provider combo at ``provider_id`` without notifying listeners."""
+        self._provider_combo.blockSignals(True)
+        index = self._provider_combo.findData(provider_id)
+        self._provider_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._provider_combo.blockSignals(False)
+
+    def _on_provider_changed(self, _index: int) -> None:
+        """Switch the active aggregator and reload its catalog."""
+        provider_id = self._provider_combo.currentData()
+        if not provider_id or provider_id == self._settings.default_provider:
+            return
+        if self._worker is not None:
+            self.log.warning("Wait for the current task before switching the provider.")
+            self._select_provider(self._settings.default_provider)
+            return
+        self._settings.default_provider = str(provider_id)
+        self._settings_store.save(self._settings)
+        self.log.info(f"Provider switched to {display_name(str(provider_id))}.")
+
+        self._models = []
+        self._model_combo.blockSignals(True)
+        self._model_combo.clear()
+        self._model_combo.blockSignals(False)
+        self.params.set_model(None)
+        self._status_model.setText("Model: —")
+        self.prompt.set_cost_hint("")
+        self._balance_label.setText("—")
+        self.refresh_catalog()
 
     def _build_model_bar(self) -> QWidget:
         bar = QWidget()
@@ -322,10 +363,19 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self._settings, parent=self)
         if not dialog.exec():
             return
-        self._settings = dialog.result_settings()
+        updated = dialog.result_settings()
+        provider_changed = updated.default_provider != self._provider_combo.currentData()
+        self._settings = updated
         self._settings_store.save(self._settings)
         self._keystore.load()
         self._apply_theme(self._settings.theme)
+        if provider_changed:
+            self._select_provider(self._settings.default_provider)
+            self._models = []
+            self._model_combo.clear()
+            self.params.set_model(None)
+            self._balance_label.setText("—")
+            self.refresh_catalog()
         self.log.info("Settings saved.")
 
     def open_docs(self) -> None:

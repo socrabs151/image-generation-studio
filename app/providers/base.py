@@ -7,6 +7,7 @@ Providers must not import PySide6.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 from app.core.errors import (
     AuthenticationError,
@@ -34,8 +35,17 @@ class Provider(ABC):
         """Return the list of image-generation models."""
 
     @abstractmethod
-    def generate(self, request: GenerationRequest, timeout: int = 180) -> GenerationResult:
-        """Run a generation request and return the images and the actual cost."""
+    def generate(
+        self,
+        request: GenerationRequest,
+        timeout: int = 180,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> GenerationResult:
+        """Run a generation request and return the images and the actual cost.
+
+        ``cancel_check`` is polled by providers that wait for a result in several
+        steps, so a long task can be interrupted while it is still running.
+        """""
 
     @abstractmethod
     def check_account(self, timeout: int = 30) -> AccountInfo:

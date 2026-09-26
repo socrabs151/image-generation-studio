@@ -8,15 +8,28 @@ from __future__ import annotations
 
 from app.providers.aitunnel import AitunnelProvider
 from app.providers.base import Provider
+from app.providers.polza import PolzaProvider
 
 _PROVIDERS: dict[str, type[Provider]] = {
     AitunnelProvider.id: AitunnelProvider,
+    PolzaProvider.id: PolzaProvider,
 }
 
 
 def provider_ids() -> list[str]:
     """Return the ids of all registered providers."""
     return list(_PROVIDERS)
+
+
+def provider_choices() -> list[tuple[str, str]]:
+    """Return ``(provider_id, display_name)`` pairs in registration order."""
+    return [(key, provider.display_name or key) for key, provider in _PROVIDERS.items()]
+
+
+def display_name(provider_id: str) -> str:
+    """Return the human-readable name of a provider, falling back to its id."""
+    provider = _PROVIDERS.get(provider_id)
+    return provider.display_name if provider and provider.display_name else provider_id
 
 
 def get_provider_class(provider_id: str) -> type[Provider]:

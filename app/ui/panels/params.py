@@ -19,6 +19,7 @@ from app.core.models import ModelInfo
 from app.ui.widgets.number_field import NumberField
 
 _NONE = "auto"
+_MAX_IMAGES = 10
 
 
 class ParamsPanel(QFrame):
@@ -81,16 +82,18 @@ class ParamsPanel(QFrame):
 
     def set_model(self, model: ModelInfo | None) -> None:
         """Populate the fields from a model's capabilities."""
-        self.n_field.setValue(1)
         self._clear_passthrough()
         if model is None:
+            self.n_field.setMaximum(_MAX_IMAGES)
+            self.n_field.setValue(1)
             self.hint.setText("Select a model to see its parameters.")
             for widget in (self.quality, self.resolution, self.format, self.background):
                 widget.clear()
                 widget.setEnabled(False)
             return
 
-        self.n_field.setValue(min(self.n_field.value(), model.max_n))
+        self.n_field.setMaximum(min(_MAX_IMAGES, model.max_n))
+        self.n_field.setValue(1)
         self._fill(self.quality, model.qualities)
         self._fill(self.resolution, model.resolutions)
         self._fill(self.format, model.formats)
