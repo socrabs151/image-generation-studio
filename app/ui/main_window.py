@@ -299,6 +299,7 @@ class MainWindow(QMainWindow):
             n=self.params.selected_n(),
             quality=self.params.selected_quality(),
             resolution=self.params.selected_resolution(),
+            aspect_ratio=self.params.selected_aspect_ratio(),
             output_format=self.params.selected_format(),
             background=self.params.selected_background(),
             seed=self.params.selected_seed(),
@@ -411,14 +412,24 @@ class MainWindow(QMainWindow):
 
     # ---------- worker callbacks ----------
     def _on_catalog_loaded(self, result: CatalogResult) -> None:
-        self._models = result.models
+        # A model that cannot be driven by a prompt (an upscaler, for example) would
+        # only fail after the request was accepted, so it is left out of the list.
+        self._models = [model for model in result.models if model.supports_generation]
+        skipped = len(result.models) - len(self._models)
         self._model_combo.blockSignals(True)
         self._model_combo.clear()
         for model in self._models:
             self._model_combo.addItem(model.display_name())
         self._model_combo.blockSignals(False)
         source = "cache" if result.from_cache else "network"
-        self.log.info(f"Catalog loaded: {len(self._models)} models ({source}).")
+        message = f"Catalog loaded: {len(self._models)} models ({source})."
+        if skipped:
+            message += f" {skipped} skipped: no prompt support."
+            self.log.info(
+                f"{skipped} model(s) hidden: they transform an uploaded image "
+                "instead of generating one from a prompt."
+            )
+        self.log.info(message)
         if self._models:
             self._model_combo.setCurrentIndex(0)
             self._on_model_changed(0)

@@ -106,3 +106,41 @@ def test_reserved_file_name_falls_back(service: GenerationService) -> None:
     assert safe_filename_component("CON") == "model"
     assert safe_filename_component("///") == "model"
     assert safe_filename_component("openai/gpt-image-1.5") == "openai-gpt-image-1.5"
+
+
+def test_missing_required_parameter_is_rejected(
+    service: GenerationService,
+) -> None:
+    model = _model(
+        aspect_ratios=["1:1", "16:9"],
+        required_parameters=["aspect_ratio"],
+    )
+    with pytest.raises(BadParameterError) as info:
+        service.validate(_request(), model)
+
+    message = str(info.value)
+    assert "aspect_ratio" in message
+    assert "1:1, 16:9" in message
+    assert model.id in message
+
+
+def test_required_parameter_satisfied_by_the_request(service: GenerationService) -> None:
+    model = _model(aspect_ratios=["1:1"], required_parameters=["aspect_ratio"])
+    service.validate(_request(aspect_ratio="1:1"), model)
+
+
+def test_required_parameter_satisfied_by_passthrough(service: GenerationService) -> None:
+    model = _model(
+        allowed_passthrough=["upscale_factor"],
+        required_parameters=["upscale_factor"],
+    )
+    service.validate(_request(passthrough={"upscale_factor": "2"}), model)
+    with pytest.raises(BadParameterError):
+        service.validate(_request(), model)
+
+
+def test_no_required_parameters_keeps_optional_fields_empty(
+    service: GenerationService,
+) -> None:
+    model = _model(aspect_ratios=["1:1", "16:9"], required_parameters=[])
+    service.validate(_request(), model)

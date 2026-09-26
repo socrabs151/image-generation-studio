@@ -21,6 +21,17 @@ from app.ui.widgets.number_field import NumberField
 _NONE = "auto"
 _MAX_IMAGES = 10
 
+# Panel labels for the parameters a model can declare as mandatory.
+_FIELD_LABELS = {
+    "prompt": "Prompt",
+    "resolution": "Resolution",
+    "aspect_ratio": "Aspect ratio",
+    "quality": "Quality",
+    "size": "Size",
+    "output_format": "Output format",
+    "background": "Background",
+}
+
 
 class ParamsPanel(QFrame):
     """Panel with generation parameters."""
@@ -43,6 +54,7 @@ class ParamsPanel(QFrame):
         self.n_field = NumberField(1, 10, 1)
         self.quality = self._combo()
         self.resolution = self._combo()
+        self.aspect_ratio = self._combo()
         self.format = self._combo()
         self.seed = QLineEdit()
         self.seed.setPlaceholderText("random")
@@ -52,6 +64,7 @@ class ParamsPanel(QFrame):
         form.addRow("Count", self.n_field)
         form.addRow("Quality", self.quality)
         form.addRow("Resolution", self.resolution)
+        form.addRow("Aspect ratio", self.aspect_ratio)
         form.addRow("Format", self.format)
         form.addRow("Seed", self.seed)
         form.addRow("Background", self.background)
@@ -87,22 +100,40 @@ class ParamsPanel(QFrame):
             self.n_field.setMaximum(_MAX_IMAGES)
             self.n_field.setValue(1)
             self.hint.setText("Select a model to see its parameters.")
-            for widget in (self.quality, self.resolution, self.format, self.background):
+            for widget in (
+                self.quality,
+                self.resolution,
+                self.aspect_ratio,
+                self.format,
+                self.background,
+            ):
                 widget.clear()
                 widget.setEnabled(False)
             return
 
         self.n_field.setMaximum(min(_MAX_IMAGES, model.max_n))
         self.n_field.setValue(1)
-        self._fill(self.quality, model.qualities)
-        self._fill(self.resolution, model.resolutions)
-        self._fill(self.format, model.formats)
-        self._fill(self.background, model.backgrounds)
+        required = set(model.required_parameters)
+        self._fill(self.quality, model.qualities, "quality" in required)
+        self._fill(self.resolution, model.resolutions, "resolution" in required)
+        self._fill(self.aspect_ratio, model.aspect_ratios, "aspect_ratio" in required)
+        self._fill(self.format, model.formats, "output_format" in required)
+        self._fill(self.background, model.backgrounds, "background" in required)
         self._build_passthrough(model.allowed_passthrough)
-        self.hint.setText(
-            f"Model supports: n≤{model.max_n}, references≤{model.max_input_references}. "
-            "Unsupported fields stay empty."
-        )
+        missing = [
+            name for name in model.required_parameters if name in _FIELD_LABELS
+        ]
+        if missing:
+            labels = ", ".join(_FIELD_LABELS[name] for name in missing)
+            self.hint.setText(
+                f"Model supports: n≤{model.max_n}, references≤{model.max_input_references}. "
+                f"Required: {labels}."
+            )
+        else:
+            self.hint.setText(
+                f"Model supports: n≤{model.max_n}, references≤{model.max_input_references}. "
+                "Unsupported fields stay empty."
+            )
 
     def _build_passthrough(self, names: list[str]) -> None:
         self._passthrough_title.setVisible(bool(names))
@@ -119,14 +150,22 @@ class ParamsPanel(QFrame):
         self._passthrough_title.setVisible(False)
 
     @staticmethod
-    def _fill(combo: QComboBox, values: list[str]) -> None:
+    def _fill(combo: QComboBox, values: list[str], required: bool = False) -> None:
+        """Fill a combo, keeping ``auto`` out of the list for a required parameter.
+
+        A mandatory parameter must always carry a value: the "not chosen" placeholder
+        is left out and the first real value is selected, so the request cannot miss
+        it while the user can still pick another one.
+        """
         combo.clear()
         if not values:
             combo.setEnabled(False)
             return
         combo.setEnabled(True)
-        combo.addItem(_NONE)
+        if not required:
+            combo.addItem(_NONE)
         combo.addItems(values)
+        combo.setCurrentIndex(0)
 
     # ---------- reading values ----------
     def selected_n(self) -> int:
@@ -140,6 +179,10 @@ class ParamsPanel(QFrame):
     def selected_resolution(self) -> str | None:
         """Selected resolution, or ``None`` when auto/unset."""
         return self._value(self.resolution)
+
+    def selected_aspect_ratio(self) -> str | None:
+        """Selected aspect ratio, or ``None`` when auto/unset."""
+        return self._value(self.aspect_ratio)
 
     def selected_format(self) -> str | None:
         """Selected output format, or ``None`` when auto/unset."""

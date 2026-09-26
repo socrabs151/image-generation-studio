@@ -70,3 +70,25 @@ def test_build_payload_with_references() -> None:
     assert len(references) == 1
     assert references[0]["type"] == "image_url"
     assert references[0]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_parameter_without_auto_is_treated_as_mandatory() -> None:
+    # AITUNNEL does not publish which parameters are mandatory; a value list without
+    # "auto" cannot be left out, otherwise the provider rejects the request.
+    model = AitunnelProvider._parse_model(
+        "gemini",
+        {
+            "supported_aspect_ratios": ["1:1", "16:9"],
+            "supported_resolutions": ["1K", "2K"],
+            "supported_quality": ["auto", "high"],
+            "supported_output_formats": ["auto", "png"],
+        },
+    )
+
+    assert model.required_parameters == ["aspect_ratio", "resolution"]
+
+
+def test_no_required_parameters_without_value_lists() -> None:
+    model = AitunnelProvider._parse_model("plain", {"description": "no options"})
+
+    assert model.required_parameters == []

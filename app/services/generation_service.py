@@ -107,9 +107,45 @@ class GenerationService:
             if detect_format(reference) not in REFERENCE_FORMATS:
                 allowed = ", ".join(REFERENCE_FORMATS)
                 raise BadParameterError(f"Unsupported reference format. Allowed: {allowed}.")
+        self._validate_required(request, model)
         self._validate_choice(request.background, model.backgrounds, "background")
         self._validate_choice(request.resolution, model.resolutions, "resolution")
         self._validate_choice(request.aspect_ratio, model.aspect_ratios, "aspect_ratio")
+
+    @staticmethod
+    def _validate_required(request: GenerationRequest, model: ModelInfo) -> None:
+        """Refuse a request that omits a parameter the model cannot do without."""
+        if not model.required_parameters:
+            return
+        sent = {
+            "prompt": request.prompt,
+            "resolution": request.resolution,
+            "aspect_ratio": request.aspect_ratio,
+            "quality": request.quality,
+            "size": request.size,
+            "output_format": request.output_format,
+            "background": request.background,
+            **request.passthrough,
+        }
+        missing = model.missing_required(sent)
+        if not missing:
+            return
+        options = {
+            "resolution": model.resolutions,
+            "aspect_ratio": model.aspect_ratios,
+            "quality": model.qualities,
+            "output_format": model.formats,
+            "background": model.backgrounds,
+        }
+        details = []
+        for name in missing:
+            allowed = options.get(name)
+            suffix = f" ({', '.join(allowed)})" if allowed else ""
+            details.append(f"{name}{suffix}")
+        raise BadParameterError(
+            f'Model {model.id} requires {", ".join(details)}. '
+            "Fill the field in the parameters panel."
+        )
 
     def generate(
         self,

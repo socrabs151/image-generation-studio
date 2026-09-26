@@ -118,6 +118,36 @@ def test_parse_model_without_described_parameters() -> None:
     assert model.min_price is None
 
 
+def test_parse_model_reads_required_flags() -> None:
+    entry = _entry(
+        parameters={
+            "prompt": {"required": True},
+            "aspect_ratio": {"required": True, "values": ["1:1", "16:9"]},
+            "quality": {"required": True, "values": ["high"]},
+            "image_resolution": {"values": ["1K"]},
+            "seed": {},
+        }
+    )
+    model = PolzaProvider._parse_model(entry)
+
+    assert model.required_parameters == ["aspect_ratio", "prompt", "quality"]
+
+
+def test_required_ignores_reference_images() -> None:
+    # Images are checked against the maximum count instead, and a model that only
+    # transforms an upload is not offered for prompt-driven generation.
+    entry = _entry(
+        parameters={
+            "prompt": {"required": True},
+            "images": {"required": True, "min": 1, "max": 1},
+            "upscale_factor": {"required": True, "values": ["2", "4"]},
+        }
+    )
+    model = PolzaProvider._parse_model(entry)
+
+    assert model.required_parameters == ["prompt", "upscale_factor"]
+
+
 def test_parse_model_without_prompt_is_not_a_generation_model() -> None:
     model = PolzaProvider._parse_model(
         _entry(parameters={"images": {"max": 1}, "upscale_factor": {"values": ["2"]}})

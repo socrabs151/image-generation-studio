@@ -40,8 +40,32 @@ GENERATION_URL = "https://api.aitunnel.ru/v1/images/generations"
 ACCOUNT_URL = "https://api.aitunnel.ru/v1/aitunnel"
 
 
+def _required_parameters(
+    resolutions: list[str],
+    aspect_ratios: list[str],
+    qualities: list[str],
+    formats: list[str],
+    backgrounds: list[str],
+) -> list[str]:
+    """Infer the mandatory parameters of a model from its advertised values.
+
+    The AITUNNEL catalog lists the values a parameter accepts but does not say which
+    of them are mandatory. A list that offers ``auto`` can be left out, so a list
+    without it is treated as mandatory: the provider otherwise rejects the request
+    and the caller still pays for the attempt. The names are the ones used in
+    :class:`~app.core.models.GenerationRequest`, not the catalog field names.
+    """
+    candidates = {
+        "resolution": resolutions,
+        "aspect_ratio": aspect_ratios,
+        "quality": qualities,
+        "output_format": formats,
+        "background": backgrounds,
+    }
+    return sorted(name for name, values in candidates.items() if values and "auto" not in values)
+
+
 class AitunnelProvider(Provider):
-    """AITUNNEL aggregator provider."""
 
     id = "aitunnel"
     display_name = "AITUNNEL"
@@ -64,22 +88,34 @@ class AitunnelProvider(Provider):
 
     @staticmethod
     def _parse_model(name: str, entry: dict) -> ModelInfo:
+        resolutions = list(entry.get("supported_resolutions") or [])
+        aspect_ratios = list(entry.get("supported_aspect_ratios") or [])
+        qualities = list(entry.get("supported_quality") or [])
+        formats = list(entry.get("supported_output_formats") or [])
+        backgrounds = list(entry.get("supported_background") or [])
         return ModelInfo(
             id=name,
             provider_id=AitunnelProvider.id,
             description=entry.get("description") or "",
             min_price=as_float(entry.get("min_price_per_image")),
             max_price=as_float(entry.get("max_price_per_image")),
-            resolutions=list(entry.get("supported_resolutions") or []),
-            aspect_ratios=list(entry.get("supported_aspect_ratios") or []),
-            qualities=list(entry.get("supported_quality") or []),
-            formats=list(entry.get("supported_output_formats") or []),
-            backgrounds=list(entry.get("supported_background") or []),
+            resolutions=resolutions,
+            aspect_ratios=aspect_ratios,
+            qualities=qualities,
+            formats=formats,
+            backgrounds=backgrounds,
             supports_seed=bool(entry.get("supports_seed")),
             supports_generation=bool(entry.get("supports_generation", True)),
             supports_edit=bool(entry.get("supports_edit")),
             max_n=int(entry.get("max_n") or 1),
             max_input_references=int(entry.get("max_input_references") or 0),
+            required_parameters=_required_parameters(
+                resolutions=resolutions,
+                aspect_ratios=aspect_ratios,
+                qualities=qualities,
+                formats=formats,
+                backgrounds=backgrounds,
+            ),
             allowed_passthrough=list(entry.get("allowed_passthrough_parameters") or []),
         )
 

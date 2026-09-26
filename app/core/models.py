@@ -29,6 +29,22 @@ class ModelInfo:
     max_n: int = 1
     max_input_references: int = 0
     allowed_passthrough: list[str] = field(default_factory=list)
+    # Parameters the model refuses to run without, for example an aspect ratio.
+    # An empty request is rejected by the provider and would still be charged, so
+    # the request is validated before it is sent.
+    required_parameters: list[str] = field(default_factory=list)
+
+    def missing_required(self, values: dict[str, object]) -> list[str]:
+        """Required parameters that have no value in ``values``.
+
+        ``values`` maps a parameter name to the value that would be sent, with
+        ``None`` or an empty string meaning "not chosen".
+        """
+        return [
+            name
+            for name in self.required_parameters
+            if values.get(name) in (None, "")
+        ]
 
     @property
     def price_range(self) -> bool:

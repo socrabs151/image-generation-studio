@@ -140,6 +140,7 @@ class PolzaProvider(Provider):
             supports_edit=max_references > 0,
             max_n=MAX_IMAGES_PER_REQUEST,
             max_input_references=max_references,
+            required_parameters=_required(parameters),
             allowed_passthrough=[
                 name for name in parameters if name not in _MAPPED_PARAMETERS
             ],
@@ -358,6 +359,22 @@ def _values(parameters: dict, name: str) -> list[str]:
     if not isinstance(values, list):
         return []
     return [str(value) for value in values]
+
+
+def _required(parameters: dict) -> list[str]:
+    """Parameter names the model marks as required in the catalog.
+
+    ``images`` is left out: reference images are validated separately against the
+    maximum count, and a model that only transforms an uploaded image is not offered
+    for prompt-driven generation at all.
+    """
+    names = []
+    for name, constraint in parameters.items():
+        if name == "images" or not isinstance(constraint, dict):
+            continue
+        if constraint.get("required"):
+            names.append(name)
+    return sorted(names)
 
 
 def _price_range(pricing) -> tuple[float | None, float | None]:
