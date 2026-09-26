@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
     def open_docs(self) -> None:
         """Open the documentation window."""
         if self._docs_window is None:
-            self._docs_window = DocsWindow(parent=self)
+            self._docs_window = DocsWindow(theme=self._settings.theme, parent=self)
         self._docs_window.show()
         self._docs_window.raise_()
 
@@ -540,6 +540,8 @@ class MainWindow(QMainWindow):
     def _apply_theme(self, theme: str) -> None:
         applied = apply_theme(QGuiApplication.instance(), theme)
         self._settings.theme = applied
+        if self._docs_window is not None:
+            self._docs_window.set_theme(applied)
         for name, action in self._theme_actions.items():
             action.setChecked(name == applied)
 

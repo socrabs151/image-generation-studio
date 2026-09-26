@@ -10,6 +10,7 @@ dependencies = [
     "PySide6>=6.6",
     "requests>=2.31",
     "markdown-it-py>=3.0",
+    "Pygments>=2.17",
 ]
 
 [project.optional-dependencies]

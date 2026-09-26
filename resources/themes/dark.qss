@@ -114,6 +114,36 @@ QLabel#resultThumb {
 QLabel#resultThumb:hover { border-color: #6c8cff; background-color: #232338; }
 QLabel#resultError { color: #f87171; padding: 6px; }
 
+/* Дерево документации: округлённое выделение вместо грубой полосы */
+QTreeWidget#docsTree {
+    background-color: #1b1b29;
+    border: 1px solid #3a3a52;
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+    /* The branch column of a selected row is painted with the palette highlight,
+       which shows up as a coloured block on the left; keep it in step with the row. */
+    selection-background-color: #2a2a42;
+}
+QTreeWidget#docsTree::item {
+    padding: 5px 8px;
+    border: none;
+    border-radius: 5px;
+    color: #c9c9d8;
+}
+QTreeWidget#docsTree::item:hover { background-color: #232338; color: #e6e6f0; }
+QTreeWidget#docsTree::item:selected { background-color: #2a2a42; color: #9db4ff; }
+QTreeWidget#docsTree::item:selected:hover { background-color: #32324e; }
+QTreeWidget#docsTree::branch { background: transparent; }
+QTreeWidget#docsTree::branch:has-children:closed {
+    image: url(@ICONS@/docs/chevron-right.png);
+}
+QTreeWidget#docsTree::branch:has-children:open {
+    image: url(@ICONS@/docs/chevron-down.png);
+}
+QLabel#docsTitle { font-size: 11pt; font-weight: 600; color: #e6e6f0; }
+QTextBrowser#docsViewer { background-color: #1e1e2e; border: 1px solid #3a3a52; border-radius: 6px; }
+
 /* Числовое поле «Кол-во»: своя обёртка вместо QSpinBox */
 QFrame#numberField {
     background-color: #1b1b29;
