@@ -1,15 +1,18 @@
 """Tests for the Markdown renderer used by the documentation window.
 
-Only the HTML generation is exercised, so no window has to be created.
+Only the HTML generation is exercised, so no window has to be created. The renderer
+is deliberately free of PySide6: CI runs on a headless Linux runner without the Qt
+runtime libraries, and importing Qt there fails.
 """
 
 from __future__ import annotations
 
+import pathlib
 import re
 
 import pytest
 
-from app.ui.widgets.markdown_view import (
+from app.ui.markdown import (
     DARK_COLORS,
     LIGHT_COLORS,
     THEME_COLORS,
@@ -97,6 +100,20 @@ def test_unknown_theme_falls_back_to_light() -> None:
 
 def test_empty_document_renders_without_error() -> None:
     assert "<body>" in render_markdown("")
+
+
+def test_renderer_does_not_require_qt() -> None:
+    """The renderer must stay importable where Qt is unavailable.
+
+    Importing PySide6.QtGui fails on a headless runner without libEGL, which broke
+    CI; the rendering logic therefore has to live outside the widget module.
+    """
+    import app.ui.markdown as renderer
+
+    source = pathlib.Path(renderer.__file__).read_text(encoding="utf-8")
+    assert "PySide6" not in source.replace(
+        "Kept free of PySide6 so the rendering can be tested on a headless machine", ""
+    )
 
 
 def test_both_palettes_define_every_colour() -> None:
