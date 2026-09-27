@@ -15,7 +15,9 @@ from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -39,7 +42,6 @@ from app.services.history_stats import (
     totals_by_model,
 )
 from app.services.history_store import HistoryRecord, HistoryStore
-from app.ui.dialogs.error_dialog import ErrorDialog
 from app.ui.dialogs.export_dialog import ExportDialog
 
 PROMPT_ROLE = Qt.ItemDataRole.UserRole
@@ -125,11 +127,24 @@ class HistoryWindow(QMainWindow):
         self.delete_button.clicked.connect(self._delete_selected)
         self.export_button = QPushButton("Export…")
         self.export_button.clicked.connect(self.export)
-        self.error_button = QPushButton("Show error")
-        self.error_button.clicked.connect(self.show_error_dialog)
-        self.error_button.setVisible(False)
 
-        self._error_shown_for = ""
+        # A failed attempt shows its error under the table, where the thumbnails of a
+        # successful one appear, so that the reason is always in front of the user.
+        self._error_text = QTextEdit()
+        self._error_text.setReadOnly(True)
+        self._error_text.setObjectName("errorText")
+        self._error_copy = QPushButton("Copy")
+        self._error_copy.setToolTip("Copy the error text to the clipboard")
+        self._error_copy.clicked.connect(self._copy_error)
+        self._error_box = QFrame()
+        self._error_box.setObjectName("subPanel")
+        error_layout = QHBoxLayout(self._error_box)
+        error_layout.setContentsMargins(8, 8, 8, 8)
+        error_layout.setSpacing(8)
+        error_layout.addWidget(self._error_text, stretch=1)
+        error_layout.addWidget(self._error_copy, alignment=Qt.AlignmentFlag.AlignTop)
+        self._error_box.setFixedHeight(120)
+        self._error_box.setVisible(False)
 
         self.totals_label = QLabel("")
         self.totals_label.setObjectName("docsTitle")
@@ -142,7 +157,6 @@ class HistoryWindow(QMainWindow):
         controls.addWidget(self.repeat_button)
         controls.addWidget(self.open_button)
         controls.addWidget(self.delete_button)
-        controls.addWidget(self.error_button)
         controls.addStretch(1)
         controls.addWidget(self.export_button)
 
@@ -164,6 +178,7 @@ class HistoryWindow(QMainWindow):
         layout.addWidget(self.table, stretch=1)
         layout.addWidget(self._details)
         layout.addWidget(self._thumbs_scroll)
+        layout.addWidget(self._error_box)
         self.setCentralWidget(container)
 
         self.reload()
@@ -325,31 +340,37 @@ class HistoryWindow(QMainWindow):
         if record is None:
             self._details.setText("Select an entry to see its parameters.")
             self._clear_thumbnails()
+            self._clear_error()
             self._sync_buttons(None)
             return
         self._details.setText(self._describe(record))
         self._show_thumbnails(record)
+        self._show_error(record)
         self._sync_buttons(record)
-        # A failed attempt opens its error right away, once per entry.
-        if record.error and record.id != self._error_shown_for:
-            self._error_shown_for = record.id
-            self.show_error_dialog()
 
-    def show_error_dialog(self) -> None:
-        """Open the error of the selected entry in a modal dialog."""
-        record = self.selected_record()
-        if record is None or not record.error:
+    def _copy_error(self) -> None:
+        """Put the error of the selected entry into the clipboard."""
+        text = self._error_text.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+
+    def _clear_error(self) -> None:
+        self._error_text.clear()
+        self._error_box.setVisible(False)
+
+    def _show_error(self, record: HistoryRecord) -> None:
+        """Show the error of a failed entry in place of the thumbnails."""
+        self._clear_error()
+        if not record.error:
             return
-        context = f"{record.timestamp.replace('T', ' ')} · {record.provider_id}/{record.model}"
-        dialog = ErrorDialog(context, record.error, parent=self)
-        self._error_shown_for = record.id
-        dialog.exec()
+        self._error_text.setPlainText(record.error)
+        self._error_box.setVisible(True)
 
     @staticmethod
     def _describe(record: HistoryRecord) -> str:
         parts = [f"Status: {record.status}"]
         if record.error:
-            parts.append(f"error: {record.error}")
+            parts.append("failed — see the error below")
         if record.duration_seconds is not None:
             parts.append(f"took {record.duration_seconds:.1f} s")
         if record.has_request_snapshot:
@@ -391,8 +412,14 @@ class HistoryWindow(QMainWindow):
             button = QPushButton()
             button.setFixedSize(_THUMB_SIZE)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setIcon(pixmap.scaled(_THUMB_SIZE))
-            button.setIconSize(_THUMB_SIZE)
+            # Keep the aspect ratio: a stretched thumbnail misrepresents the result.
+            thumb = pixmap.scaled(
+                _THUMB_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            button.setIcon(thumb)
+            button.setIconSize(thumb.size())
             button.setToolTip(path)
             button.clicked.connect(lambda _=False, p=path: self._open_path(p))
             self._thumbs_row.insertWidget(self._thumbs_row.count() - 1, button)
@@ -406,7 +433,7 @@ class HistoryWindow(QMainWindow):
             self._thumbs_row.insertWidget(
                 self._thumbs_row.count() - 1, QLabel("files not found on disk")
             )
-        self._thumbs_scroll.setVisible(bool(record.file_paths))
+        self._thumbs_scroll.setVisible(bool(record.file_paths) and not record.error)
 
     # ---------- actions ----------
     def _sync_buttons(self, record: HistoryRecord | None = None) -> None:
@@ -422,7 +449,6 @@ class HistoryWindow(QMainWindow):
         self.repeat_button.setEnabled(has_record)
         self.delete_button.setEnabled(has_record)
         self.open_button.setEnabled(bool(record and record.file_paths))
-        self.error_button.setVisible(bool(record and record.error))
 
     def _emit_use(self) -> None:
         record = self.selected_record()
@@ -436,13 +462,9 @@ class HistoryWindow(QMainWindow):
 
     def _open_file(self, *_args) -> None:
         record = self.selected_record()
-        if record is None:
+        if record is None or not record.file_paths:
             return
-        if record.error:
-            self.show_error_dialog()
-            return
-        if record.file_paths:
-            self._open_path(record.file_paths[0])
+        self._open_path(record.file_paths[0])
 
     @staticmethod
     def _open_path(path: str) -> None:

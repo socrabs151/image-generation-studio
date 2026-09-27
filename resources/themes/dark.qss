@@ -113,6 +113,7 @@ QLabel#resultThumb {
 }
 QLabel#resultThumb:hover { border-color: #6c8cff; background-color: #232338; }
 QLabel#resultError { color: #f87171; padding: 6px; }
+QTextEdit#errorText { color: #fca5a5; background-color: #1b1b29; }
 
 /* Дерево документации: округлённое выделение вместо грубой полосы */
 QTreeWidget#docsTree {
