@@ -263,7 +263,10 @@ class ResultViewer(QWidget):
             item = self._grid.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                # Hide it, then delete: setParent(None) would turn the widget into
+                # a separate window for a moment, and leaving it visible would
+                # leave a ghost until the event loop catches up.
+                widget.hide()
                 widget.deleteLater()
 
     def _activate(self, index: int) -> None:

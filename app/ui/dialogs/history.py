@@ -395,7 +395,10 @@ class HistoryWindow(QMainWindow):
             item = self._thumbs_row.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                # Hide it, then delete: setParent(None) would turn the widget into
+                # a separate window for a moment, and leaving it visible would
+                # leave a ghost until the event loop catches up.
+                widget.hide()
                 widget.deleteLater()
         self._thumbs_scroll.setVisible(False)
 

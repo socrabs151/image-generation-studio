@@ -145,7 +145,10 @@ class ReferencePanel(QWidget):
             item = self._strip.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                # Hide it, then delete: setParent(None) would turn the thumbnail
+                # into a separate window for a moment, and leaving it visible
+                # would leave a ghost until the event loop catches up.
+                widget.hide()
                 widget.deleteLater()
         for index in range(len(self._items)):
             self._strip.addWidget(self._build_thumb(index))
