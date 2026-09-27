@@ -48,9 +48,21 @@ def to_data_url(data: bytes) -> str:
 
 
 def decode_base64(encoded: str) -> bytes:
-    """Decode a base64 image payload, reporting a clear error when it is broken."""
+    """Decode a base64 image payload, reporting a clear error when it is broken.
+
+    Both a bare base64 string and a ``data:image/png;base64,`` URI are accepted,
+    because providers return either form. The payload is validated: without it
+    ``b64decode`` silently drops the characters it does not understand and writes
+    a truncated file.
+    """
+    payload = encoded.strip()
+    if payload.startswith("data:"):
+        _, separator, payload = payload.partition(",")
+        if not separator:
+            raise ProviderError("The provider returned a malformed data URI.")
+    payload = "".join(payload.split())
     try:
-        return base64.b64decode(encoded, validate=False)
+        return base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ProviderError(f"The provider returned an undecodable image: {exc}") from exc
 

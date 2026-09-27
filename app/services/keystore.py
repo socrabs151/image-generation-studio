@@ -8,7 +8,11 @@ changing the UI.
 
 from __future__ import annotations
 
-from app.services.settings_store import Settings, SettingsStore
+from app.core.errors import ConfigError
+from app.logging_setup import get_logger
+from app.services.settings_store import ProviderSettings, Settings, SettingsStore
+
+LOGGER = get_logger()
 
 
 class KeyStore:
@@ -19,8 +23,17 @@ class KeyStore:
         self._settings: Settings | None = None
 
     def load(self) -> None:
-        """Load settings from disk."""
-        self._settings = self._store.load()
+        """Load settings from disk, keeping the defaults if the file is unreadable.
+
+        The main window already survives a damaged settings file by falling back to
+        the defaults; the key store must not turn the same file into a startup
+        failure, and an unreadable file simply means no keys are known yet.
+        """
+        try:
+            self._settings = self._store.load()
+        except ConfigError as exc:
+            LOGGER.warning("API keys are unavailable: %s", exc)
+            self._settings = Settings()
 
     def get(self, provider_id: str) -> str:
         """Return the API key for a provider (empty string when absent)."""
@@ -33,8 +46,6 @@ class KeyStore:
         settings = self._require_settings()
         existing = settings.providers.get(provider_id)
         if existing is None:
-            from app.services.settings_store import ProviderSettings
-
             settings.providers[provider_id] = ProviderSettings(api_key=api_key)
         else:
             existing.api_key = api_key

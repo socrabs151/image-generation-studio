@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.providers import provider_choices
-from app.services.settings_store import Settings
+from app.services.settings_store import ProviderSettings, Settings
 
 
 class SettingsDialog(QDialog):
@@ -172,8 +172,12 @@ class SettingsDialog(QDialog):
         for provider_id, field in self._key_fields.items():
             key = field.text().strip()
             existing = providers.get(provider_id)
+            # A provider missing from the file must still get the key that was
+            # just typed, otherwise it is saved and then reported as missing.
             if existing is not None:
                 providers[provider_id] = replace(existing, api_key=key)
+            else:
+                providers[provider_id] = ProviderSettings(api_key=key)
         try:
             limit = max(1, int(self.history_limit.text()))
         except ValueError:

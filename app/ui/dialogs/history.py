@@ -286,15 +286,6 @@ class HistoryWindow(QMainWindow):
             record.status,
         ]
 
-    def _store_record(self, row: int) -> None:
-        """Attach the record id and object to the row so lookups stay stable."""
-        record = self._records[row]
-        for column in range(self.table.columnCount()):
-            item = self.table.item(row, column)
-            if item is not None:
-                item.setData(_ID_ROLE, record.id)
-                item.setData(_RECORD_ROLE, record)
-
     def selected_record(self) -> HistoryRecord | None:
         """The record of the selected row, if any."""
         item = self.table.currentItem()

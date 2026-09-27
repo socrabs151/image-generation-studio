@@ -14,7 +14,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from app.config import (
-    DATA_DIR,
     SETTINGS_FILE,
     SETTINGS_SCHEMA_VERSION,
 )
@@ -66,8 +65,10 @@ class Settings:
 class SettingsStore:
     """Load and save :class:`Settings`, creating the file when missing."""
 
-    def __init__(self, path: Path = SETTINGS_FILE) -> None:
-        self._path = path
+    def __init__(self, path: Path | None = None) -> None:
+        # Resolved at call time, not as a default argument: a default is bound when
+        # the module is imported, which makes the store impossible to retarget.
+        self._path = path or SETTINGS_FILE
 
     @property
     def path(self) -> Path:
@@ -117,7 +118,9 @@ class SettingsStore:
     @staticmethod
     def _atomic_write(path: Path, text: str) -> None:
         """Write text to ``path`` atomically (temp file + replace)."""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # The target's own directory, not the default data folder: the store may be
+        # pointed at any path, including one that does not exist yet.
+        path.parent.mkdir(parents=True, exist_ok=True)
         handle = tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",

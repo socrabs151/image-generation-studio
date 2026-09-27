@@ -8,7 +8,13 @@ currently shown one.
 from __future__ import annotations
 
 from PySide6.QtGui import QGuiApplication, QPixmap
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QPushButton
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+)
 
 from app.ui.widgets.result_viewer import ZoomableView
 
@@ -43,8 +49,17 @@ class ImageViewerWindow(QMainWindow):
         if pixmap is None:
             return
         path, _ = QFileDialog.getSaveFileName(self, "Save image", "", "PNG (*.png)")
-        if path:
-            pixmap.save(path)
+        if not path:
+            return
+        # QPixmap.save() reports failure by returning False: a path without an
+        # extension, a missing folder or a read-only disk.
+        if not pixmap.save(path, "PNG"):
+            QMessageBox.critical(
+                self,
+                "Cannot save the image",
+                f"The image could not be written to:\n{path}\n\n"
+                "Check that the folder exists and is writable.",
+            )
 
     def _copy(self) -> None:
         pixmap = self.viewer.current_pixmap()

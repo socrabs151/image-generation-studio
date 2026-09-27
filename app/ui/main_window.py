@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config import APP_ICON_PATH
-from app.core.errors import AppError
+from app.config import APP_ICON_PATH, SETTINGS_FILE
+from app.core.errors import AppError, ConfigError
 from app.core.models import AccountInfo, GenerationRequest, ModelInfo
 from app.core.pricing import format_money, format_price, reserved_amount
 from app.logging_setup import get_logger
@@ -35,7 +35,7 @@ from app.services.catalog_service import CatalogResult, CatalogService
 from app.services.generation_service import GenerationOutcome, GenerationService
 from app.services.history_store import HistoryRecord, HistoryStore, request_snapshot
 from app.services.keystore import KeyStore
-from app.services.settings_store import SettingsStore
+from app.services.settings_store import Settings, SettingsStore
 from app.ui.dialogs.docs import DocsWindow
 from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
@@ -70,7 +70,9 @@ class MainWindow(QMainWindow):
         self._session_spend = 0.0
 
         self._settings_store = SettingsStore()
-        self._settings = self._settings_store.load()
+        # A damaged settings file must not stop the application from starting: the
+        # defaults are loaded instead and the problem is reported in the log panel.
+        self._settings, self._settings_problem = self._load_settings()
         self._keystore = KeyStore(self._settings_store)
         self._keystore.load()
         self._history = HistoryStore()
@@ -82,8 +84,24 @@ class MainWindow(QMainWindow):
         self._install_shortcuts()
         self._apply_theme(self._settings.theme)
 
+        if self._settings_problem:
+            self.log.error(self._settings_problem)
+
         if self._settings.auto_refresh_catalog:
             self.refresh_catalog()
+
+    def _load_settings(self) -> tuple[Settings, str]:
+        """Load the settings, falling back to defaults when the file is unusable."""
+        try:
+            return self._settings_store.load(), ""
+        except ConfigError as exc:
+            message = (
+                f"Settings could not be read ({exc}). The application started with "
+                "default settings. To recover, close the application and rename "
+                f"{SETTINGS_FILE.name} in the data folder, then start it again."
+            )
+            LOGGER.error("%s", message)
+            return Settings(), message
 
     # ---------- UI construction ----------
     def _build_ui(self) -> None:
@@ -526,10 +544,23 @@ class MainWindow(QMainWindow):
         source = "cache" if result.from_cache else "network"
         self.log.info(f"Catalog loaded: {len(self._models)} models ({source}).")
         if self._models:
-            self._model_combo.setCurrentIndex(0)
-            self._on_model_changed(0)
+            self._model_combo.setCurrentIndex(self._index_of_default_model())
+            self._on_model_changed(self._model_combo.currentIndex())
         # A Repeat across providers waits here: the model only exists now.
         self._apply_pending_restore()
+
+    def _index_of_default_model(self) -> int:
+        """Where the model from the settings sits in the combo, 0 when it is absent."""
+        preferred = self._settings.default_model
+        for index, model in enumerate(self._models):
+            if model.id == preferred:
+                return index
+        if preferred:
+            self.log.info(
+                f"The model from the settings ({preferred}) is not in the current "
+                "catalog, so the first one is selected."
+            )
+        return 0
 
     def _on_catalog_failed(self, message: str) -> None:
         self.log.error(f"Catalog load failed: {message}")

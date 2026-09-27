@@ -68,8 +68,10 @@ def request_snapshot(request: GenerationRequest) -> dict:
 class HistoryStore:
     """Load, append and trim generation history."""
 
-    def __init__(self, path: Path = HISTORY_FILE) -> None:
-        self._path = path
+    def __init__(self, path: Path | None = None) -> None:
+        # Resolved at call time, not as a default argument: a default is bound when
+        # the module is imported, which makes the store impossible to retarget.
+        self._path = path or HISTORY_FILE
         self._records: list[HistoryRecord] = []
         self._loaded = False
 
@@ -78,20 +80,24 @@ class HistoryStore:
         if not self._path.exists():
             self._records = []
             self._loaded = True
-            return self._records
+            return list(self._records)
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ConfigError(f"Cannot read history file: {exc}") from exc
         self._records = [self._record_from_dict(item) for item in raw.get("records", [])]
         self._loaded = True
-        return self._records
+        return list(self._records)
 
     def records(self) -> list[HistoryRecord]:
-        """Return the in-memory records, loading them first if needed."""
+        """Return a snapshot of the records, loading them first if needed.
+
+        A copy on purpose: the history window iterates the result in the GUI thread
+        while a worker thread may prepend a new record.
+        """
         if not self._loaded:
             self.load()
-        return self._records
+        return list(self._records)
 
     def add(self, record: HistoryRecord, limit: int = 200) -> HistoryRecord:
         """Prepend a record, trim to ``limit``, persist and return it."""

@@ -24,10 +24,12 @@ from app.core.models import (
     GenerationResult,
     ModelInfo,
 )
+from app.logging_setup import get_logger
 from app.providers.base import Provider, wrap_network_error
 from app.providers.http_utils import (
     USER_AGENT,
     as_float,
+    as_int,
     auth_headers,
     decode_base64,
     ensure_ok,
@@ -38,6 +40,8 @@ from app.providers.http_utils import (
 CATALOG_URL = "https://api.aitunnel.ru/public/aitunnel/models/images"
 GENERATION_URL = "https://api.aitunnel.ru/v1/images/generations"
 ACCOUNT_URL = "https://api.aitunnel.ru/v1/aitunnel"
+
+LOGGER = get_logger()
 
 
 def _required_parameters(
@@ -107,8 +111,8 @@ class AitunnelProvider(Provider):
             supports_seed=bool(entry.get("supports_seed")),
             supports_generation=bool(entry.get("supports_generation", True)),
             supports_edit=bool(entry.get("supports_edit")),
-            max_n=int(entry.get("max_n") or 1),
-            max_input_references=int(entry.get("max_input_references") or 0),
+            max_n=as_int(entry.get("max_n"), 1),
+            max_input_references=as_int(entry.get("max_input_references"), 0),
             required_parameters=_required_parameters(
                 resolutions=resolutions,
                 aspect_ratios=aspect_ratios,
@@ -208,7 +212,14 @@ class AitunnelProvider(Provider):
                 )
             except requests.RequestException as exc:
                 raise wrap_network_error(exc) from exc
-            ensure_ok(response)
+            # The balance is the only required answer; the key profile and the
+            # account name are extras, so a key without access to them must not
+            # leave the user without a balance.
+            if not response.ok:
+                if name == "balance":
+                    ensure_ok(response)
+                LOGGER.debug("%s is not available: HTTP %s", name, response.status_code)
+                continue
             payloads[name] = parse_json(response)
 
         balance = payloads.get("balance") or {}

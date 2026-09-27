@@ -41,7 +41,6 @@ class Reference:
 class ReferencePanel(QWidget):
     """Drop target and thumbnail strip holding every loaded reference image."""
 
-    referenceChanged = Signal()
     referenceActivated = Signal(int)
 
     def __init__(self, parent=None) -> None:
@@ -89,10 +88,6 @@ class ReferencePanel(QWidget):
     def count(self) -> int:
         """Number of loaded reference images."""
         return len(self._items)
-
-    def references(self) -> list[Reference]:
-        """The loaded references, in the order they were added."""
-        return list(self._items)
 
     def data_list(self) -> list[bytes]:
         """Raw bytes of every reference, ready for a request."""
@@ -160,7 +155,6 @@ class ReferencePanel(QWidget):
         self._count.setText(
             "" if not has_items else f"{len(self._items)} reference image(s) loaded"
         )
-        self.referenceChanged.emit()
 
     def _build_thumb(self, index: int) -> QWidget:
         """One thumbnail with a small remove button in the corner."""

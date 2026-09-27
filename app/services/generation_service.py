@@ -7,7 +7,6 @@ must never be repeated silently, because each attempt spends real money.
 
 from __future__ import annotations
 
-import base64
 import re
 import time
 from collections.abc import Callable
@@ -15,9 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import MAX_REFERENCE_BYTES, REFERENCE_FORMATS
-from app.core.errors import BadParameterError, CancelledError
-from app.core.models import GenerationRequest, GenerationResult, ModelInfo
-from app.core.pricing import reserved_amount
+from app.core.errors import AppError, BadParameterError, CancelledError
+from app.core.models import GeneratedImage, GenerationRequest, GenerationResult, ModelInfo
+from app.logging_setup import get_logger
 from app.providers import create_provider
 from app.services.history_store import (
     HistoryRecord,
@@ -26,11 +25,22 @@ from app.services.history_store import (
     request_snapshot,
 )
 
+LOGGER = get_logger()
+
 _EXTENSIONS = {
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/webp": "webp",
     "image/gif": "gif",
+}
+
+# The format names reported by :func:`detect_format` mapped to the same extensions,
+# so a detected JPEG is always written as .jpg and never as .jpeg.
+_FORMAT_EXTENSIONS = {
+    "png": "png",
+    "jpeg": "jpg",
+    "webp": "webp",
+    "gif": "gif",
 }
 
 _MAGIC = (
@@ -68,6 +78,18 @@ def detect_format(data: bytes) -> str | None:
     return None
 
 
+def _extension_for(image: GeneratedImage) -> str:
+    """Pick the file extension for a saved image.
+
+    The provider usually does not report a media type for base64 payloads, so the
+    bytes decide: without this a JPEG result would be written as ``.png``.
+    """
+    declared = _EXTENSIONS.get(image.media_type or "")
+    if declared:
+        return declared
+    return _FORMAT_EXTENSIONS.get(detect_format(image.data) or "", "png")
+
+
 @dataclass(slots=True)
 class GenerationOutcome:
     """Result of a successful generation, including saved file paths."""
@@ -81,12 +103,6 @@ class GenerationService:
 
     def __init__(self, history: HistoryStore) -> None:
         self._history = history
-
-    def reserved_amount(self, model: ModelInfo | None, n: int) -> float | None:
-        """Return the amount the provider will freeze on the balance."""
-        if model is None:
-            return None
-        return reserved_amount(model.max_price, n)
 
     def validate(self, request: GenerationRequest, model: ModelInfo | None) -> None:
         """Raise :class:`BadParameterError` when the request is invalid."""
@@ -178,7 +194,7 @@ class GenerationService:
         try:
             result = provider.generate(request, timeout=timeout, cancel_check=cancel_check)
         except Exception as exc:
-            self._history.add(
+            self._record(
                 HistoryRecord(
                     timestamp=now_iso(),
                     provider_id=request.provider_id,
@@ -197,7 +213,7 @@ class GenerationService:
             raise CancelledError()
 
         file_paths = self._save_images(result, save_dir, request)
-        self._history.add(
+        self._record(
             HistoryRecord(
                 timestamp=now_iso(),
                 provider_id=request.provider_id,
@@ -214,6 +230,20 @@ class GenerationService:
         )
         return GenerationOutcome(result=result, file_paths=file_paths)
 
+    def _record(self, record: HistoryRecord, limit: int) -> None:
+        """Append a history entry, never failing the generation because of it.
+
+        The provider has already charged for the request and the files are already
+        written, so a broken or unwritable history file must not turn a paid
+        generation into an error. The failure is logged instead.
+        """
+        try:
+            self._history.add(record, limit=limit)
+        except AppError as exc:
+            LOGGER.warning("History was not written: %s", exc)
+        except OSError as exc:
+            LOGGER.warning("History file is not writable: %s", exc)
+
     @staticmethod
     def _save_images(
         result: GenerationResult, save_dir: Path, request: GenerationRequest
@@ -223,7 +253,7 @@ class GenerationService:
         model = safe_filename_component(result.model)
         paths: list[str] = []
         for index, image in enumerate(result.images, 1):
-            extension = _EXTENSIONS.get(image.media_type or "", "png")
+            extension = _extension_for(image)
             suffix = f"_{index}" if len(result.images) > 1 else ""
             path = save_dir / f"{stamp}_{model}{suffix}.{extension}"
             path.write_bytes(image.data)
@@ -235,14 +265,3 @@ class GenerationService:
         if value and allowed and value not in allowed:
             options = ", ".join(allowed)
             raise BadParameterError(f"Invalid {field_name} '{value}'. Available: {options}.")
-
-    @staticmethod
-    def decode_data_url(data_url: str) -> bytes:
-        """Decode a ``data:`` URI (used to reload references if needed)."""
-        _, _, encoded = data_url.partition(",")
-        return base64.b64decode(encoded)
-
-    @staticmethod
-    def extension_for(media_type: str | None) -> str:
-        """Return a file extension for an image media type."""
-        return _EXTENSIONS.get(media_type or "", "png")

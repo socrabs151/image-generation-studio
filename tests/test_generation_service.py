@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.errors import BadParameterError
+from app.core.errors import BadParameterError, ConfigError
 from app.core.models import GeneratedImage, GenerationRequest, GenerationResult, ModelInfo
 from app.services.generation_service import GenerationService, safe_filename_component
 from app.services.history_store import HistoryStore
@@ -159,3 +159,106 @@ def test_model_needing_a_reference_accepts_one(service: GenerationService) -> No
     model = _model(requires_reference=True, max_input_references=1, supports_edit=True)
     png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
     service.validate(_request(input_references=[png_header]), model)
+
+
+def test_extension_follows_the_bytes_when_no_media_type(
+    service: GenerationService, tmp_path: Path
+) -> None:
+    # Polza.ai returns base64 payloads without a media type, so a JPEG result used
+    # to be written as a .png file.
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 8
+    result = GenerationResult(
+        images=[GeneratedImage(data=jpeg)],
+        cost_rub=1.0,
+        balance=None,
+        model="muse-image",
+    )
+
+    paths = service._save_images(result, tmp_path, _request())
+
+    assert paths[0].endswith(".jpg")
+    assert Path(paths[0]).read_bytes() == jpeg
+
+
+def test_declared_media_type_wins_over_the_bytes(
+    service: GenerationService, tmp_path: Path
+) -> None:
+    result = GenerationResult(
+        images=[GeneratedImage(data=b"RIFF" + b"0" * 8, media_type="image/png")],
+        cost_rub=1.0,
+        balance=None,
+        model="muse-image",
+    )
+
+    paths = service._save_images(result, tmp_path, _request())
+
+    assert paths[0].endswith(".png")
+
+
+def test_unknown_bytes_fall_back_to_png(service: GenerationService, tmp_path: Path) -> None:
+    result = GenerationResult(
+        images=[GeneratedImage(data=b"not an image at all")],
+        cost_rub=1.0,
+        balance=None,
+        model="muse-image",
+    )
+
+    paths = service._save_images(result, tmp_path, _request())
+
+    assert paths[0].endswith(".png")
+
+
+def test_paid_result_survives_a_broken_history_file(
+    service: GenerationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A history that cannot be written must not discard a generated image."""
+    result = GenerationResult(
+        images=[GeneratedImage(data=b"\x89PNG\r\n\x1a\n" + b"0" * 8)],
+        cost_rub=1.0,
+        balance=None,
+        model="muse-image",
+    )
+    monkeypatch.setattr(
+        "app.services.generation_service.create_provider",
+        lambda provider_id, api_key: _StubProvider(result),
+    )
+    monkeypatch.setattr(
+        service._history, "add", _raise_config_error, raising=True
+    )
+
+    outcome = service.generate(_request(), _model(), save_dir=tmp_path, api_key="k")
+
+    assert len(outcome.file_paths) == 1
+    assert Path(outcome.file_paths[0]).exists()
+    assert outcome.result.cost_rub == 1.0
+
+
+def test_failed_generation_still_raises_when_history_is_broken(
+    service: GenerationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.services.generation_service.create_provider",
+        lambda provider_id, api_key: _StubProvider(None),
+    )
+    monkeypatch.setattr(
+        service._history, "add", _raise_config_error, raising=True
+    )
+
+    with pytest.raises(ConfigError):
+        service.generate(_request(), _model(), save_dir=tmp_path, api_key="k")
+
+
+def _raise_config_error(*_args, **_kwargs) -> None:
+    raise ConfigError("Cannot read history file: broken")
+
+
+class _StubProvider:
+    """A provider that returns a prepared result or fails."""
+
+    def __init__(self, result: GenerationResult | None) -> None:
+        self._result = result
+
+    def generate(self, *_args, **_kwargs) -> GenerationResult:
+        if self._result is None:
+            raise ConfigError("the provider refused the request")
+        return self._result
