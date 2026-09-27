@@ -84,14 +84,15 @@ class SettingsDialog(QDialog):
         self.session_limit = QLineEdit(self._money(self._settings.session_limit_rub))
         self.generation_timeout = QLineEdit(str(self._settings.generation_timeout))
 
-        form.addRow("Confirm when reserved exceeds (₽, 0 = never):", self.confirm_threshold)
+        form.addRow("Confirm when the estimate exceeds (₽, 0 = never):", self.confirm_threshold)
         form.addRow("Session spend limit (₽, 0 = no limit):", self.session_limit)
         form.addRow("Request timeout (s):", self.generation_timeout)
 
         hint = QLabel(
-            "The provider freezes max_price×n before generating; the actual cost is "
-            "charged afterwards. A confirmation is shown when the reserved amount "
-            "exceeds the threshold."
+            "The estimate comes from the provider's catalog and equals its max price × n. "
+            "The catalog calls those prices approximate: the real cost depends on the "
+            "resolution and the amount of generated data, so it can be higher than the "
+            "estimate. The exact amount is reported by the provider afterwards."
         )
         hint.setObjectName("hint")
         hint.setWordWrap(True)

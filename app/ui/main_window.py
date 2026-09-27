@@ -322,8 +322,8 @@ class MainWindow(QMainWindow):
         reserved = reserved_amount(model.max_price, request.n)
         if reserved is not None:
             self.log.info(
-                f"Reserved amount: {format_money(reserved)} ₽ "
-                "(max×n, refunded after the response)."
+                f"Estimate by catalog: {format_money(reserved)} ₽ (max×n). "
+                "The provider reports the real cost afterwards, and it can be higher."
             )
             if not self._confirm_if_expensive(reserved):
                 return
@@ -576,8 +576,8 @@ class MainWindow(QMainWindow):
         self._status_model.setText(f"Model: {model.id}")
         reserved = reserved_amount(model.max_price, self.params.selected_n())
         self.prompt.set_cost_hint(
-            f"Range: {format_price(model.min_price, model.max_price)} ₽ · "
-            f"reserved ~{format_money(reserved)} ₽"
+            f"Catalog: {format_price(model.min_price, model.max_price)} ₽ · "
+            f"estimate ~{format_money(reserved)} ₽"
         )
 
     def _collect_references(self) -> list[bytes]:
@@ -605,15 +605,16 @@ class MainWindow(QMainWindow):
         return True
 
     def _confirm_if_expensive(self, reserved: float) -> bool:
-        """Ask for confirmation when the reserved amount exceeds the threshold."""
+        """Ask for confirmation when the catalog estimate exceeds the threshold."""
         threshold = self._settings.confirm_threshold_rub
         if threshold <= 0 or reserved <= threshold:
             return True
         answer = QMessageBox.question(
             self,
             "Confirm generation",
-            f"The reserved amount is {format_money(reserved)} ₽, which exceeds "
+            f"The catalog estimate is {format_money(reserved)} ₽, which exceeds "
             f"the confirmation threshold of {format_money(threshold)} ₽.\n"
+            "The real cost is only known after the response and can be higher.\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
