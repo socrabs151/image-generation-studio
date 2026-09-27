@@ -15,9 +15,12 @@ from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -27,13 +30,23 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.models import GenerationRequest
+from app.services.history_stats import (
+    filter_options,
+    filter_records,
+    summarize,
+    to_csv,
+    to_json,
+    totals_by_model,
+)
 from app.services.history_store import HistoryRecord, HistoryStore
+from app.ui.dialogs.export_dialog import ExportDialog
 
 PROMPT_ROLE = Qt.ItemDataRole.UserRole
 _ID_ROLE = Qt.ItemDataRole.UserRole + 1
 _RECORD_ROLE = Qt.ItemDataRole.UserRole + 2
 
 _PROMPT_PREVIEW = 60
+_ANY = "All"
 _MAX_THUMBNAILS = 12
 _THUMB_SIZE = QSize(88, 88)
 
@@ -54,6 +67,7 @@ class HistoryWindow(QMainWindow):
         self._history = history
         self._on_use = on_use
         self._on_repeat = on_repeat
+        self._all_records: list[HistoryRecord] = []
         self._records: list[HistoryRecord] = []
 
         self.table = QTableWidget(0, 7)
@@ -69,6 +83,17 @@ class HistoryWindow(QMainWindow):
         header.setSectionResizeMode(3, header.ResizeMode.Stretch)
         self.table.itemSelectionChanged.connect(self._show_selected)
         self.table.cellDoubleClicked.connect(self._open_file)
+
+        self.search = QLineEdit()
+        self.search.setObjectName("historySearch")
+        self.search.setPlaceholderText("Search prompts…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._apply_filters)
+        self.provider_filter = self._combo("Provider: ")
+        self.model_filter = self._combo("Model: ")
+        self.status_filter = self._combo("Status: ")
+        for combo in (self.provider_filter, self.model_filter, self.status_filter):
+            combo.currentIndexChanged.connect(self._apply_filters)
 
         self._details = QLabel("Select an entry to see its parameters.")
         self._details.setObjectName("hint")
@@ -97,6 +122,14 @@ class HistoryWindow(QMainWindow):
         self.open_button.clicked.connect(self._open_file)
         self.delete_button = QPushButton("Delete entry")
         self.delete_button.clicked.connect(self._delete_selected)
+        self.export_button = QPushButton("Export…")
+        self.export_button.clicked.connect(self.export)
+
+        self.totals_label = QLabel("")
+        self.totals_label.setObjectName("docsTitle")
+        self.breakdown_label = QLabel("")
+        self.breakdown_label.setObjectName("hint")
+        self.breakdown_label.setWordWrap(True)
 
         controls = QHBoxLayout()
         controls.addWidget(self.use_button)
@@ -104,11 +137,22 @@ class HistoryWindow(QMainWindow):
         controls.addWidget(self.open_button)
         controls.addWidget(self.delete_button)
         controls.addStretch(1)
+        controls.addWidget(self.export_button)
 
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
+
+        filters = QHBoxLayout()
+        filters.setSpacing(6)
+        filters.addWidget(self.search, stretch=1)
+        filters.addWidget(self.provider_filter)
+        filters.addWidget(self.model_filter)
+        filters.addWidget(self.status_filter)
+        layout.addLayout(filters)
+        layout.addWidget(self.totals_label)
+        layout.addWidget(self.breakdown_label)
         layout.addLayout(controls)
         layout.addWidget(self.table, stretch=1)
         layout.addWidget(self._details)
@@ -119,9 +163,56 @@ class HistoryWindow(QMainWindow):
 
     # ---------- data ----------
     def reload(self) -> None:
-        """Rebuild the table from the history store."""
-        self._records = self._history.records()
+        """Rebuild the table from the history store, keeping the filters."""
+        self._all_records = self._history.records()
+        providers, models, statuses = filter_options(self._all_records)
+        self._fill_facet(self.provider_filter, providers)
+        self._fill_facet(self.model_filter, models)
+        self._fill_facet(self.status_filter, statuses)
+        self._apply_filters()
+
+    @staticmethod
+    def _fill_facet(combo: QComboBox, values: list[str]) -> None:
+        """Refresh the values of a filter without losing the chosen one."""
+        chosen = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(_ANY, "")
+        for value in values:
+            combo.addItem(value, value)
+        index = combo.findData(chosen)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _apply_filters(self) -> None:
+        """Show the records that match the search phrase and the chosen facets."""
+        self._records = filter_records(
+            self._all_records,
+            query=self.search.text(),
+            provider=self.provider_filter.currentData() or "",
+            model=self.model_filter.currentData() or "",
+            status=self.status_filter.currentData() or "",
+        )
         self._fill_table()
+        self._show_totals()
+
+    def visible_records(self) -> list[HistoryRecord]:
+        """The records currently shown, i.e. after the filters."""
+        return list(self._records)
+
+    def _show_totals(self) -> None:
+        """Refresh the totals line and the per-model breakdown."""
+        records = self._records
+        self.totals_label.setText(summarize(records).summary())
+        groups = totals_by_model(records)[:5]
+        if not groups:
+            self.breakdown_label.setText("Nothing to show for these filters.")
+            return
+        parts = [
+            f"{group.name} — {group.spent_rub:.2f} ₽ ({group.images} img)"
+            for group in groups
+        ]
+        self.breakdown_label.setText("Top models: " + "; ".join(parts))
 
     def _fill_table(self) -> None:
         selected = self.selected_id()
@@ -194,6 +285,14 @@ class HistoryWindow(QMainWindow):
         """The id of the selected record, empty when nothing is selected."""
         item = self.table.currentItem()
         return str(item.data(_ID_ROLE)) if item is not None and item.data(_ID_ROLE) else ""
+
+    # ---------- helpers ----------
+    @staticmethod
+    def _combo(label: str) -> QComboBox:
+        """A filter combo showing its label as the first, "any", entry."""
+        combo = QComboBox()
+        combo.addItem(label + _ANY, "")
+        return combo
 
     def _select_id(self, record_id: str) -> None:
         if not record_id:
@@ -309,6 +408,30 @@ class HistoryWindow(QMainWindow):
             return
         self._history.delete(record.id)
         self.reload()
+
+    def export(self) -> None:
+        """Ask for a format and write the entries currently shown."""
+        records = self.visible_records()
+        if not records:
+            QMessageBox.information(self, "Nothing to export", "No entries match the filters.")
+            return
+        dialog = ExportDialog(parent=self)
+        if not dialog.exec():
+            return
+        target = dialog.target()
+        if target is None:
+            return
+        try:
+            if dialog.export_format == "json":
+                target.write_text(to_json(records), encoding="utf-8")
+            else:
+                target.write_text(to_csv(records), encoding="utf-8", newline="")
+        except OSError as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        QMessageBox.information(
+            self, "Exported", f"{len(records)} entries written to {target.name}."
+        )
 
 
 def repeat_request(record: HistoryRecord) -> GenerationRequest:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 
 from app.services.history_stats import (
+    filter_options,
+    filter_records,
     summarize,
     to_csv,
     to_json,
@@ -124,3 +126,61 @@ def test_json_export_round_trips() -> None:
 
 def test_json_export_of_nothing_is_still_valid() -> None:
     assert json.loads(to_json([]))["records"] == []
+
+
+def test_filter_by_prompt_is_case_insensitive() -> None:
+    records = [
+        _record(prompt="Черничка поехала домой"),
+        _record(prompt="Лунный пейзаж"),
+    ]
+
+    assert len(filter_records(records, query="черничка")) == 1
+    assert len(filter_records(records, query="ЧЕРНИЧКА")) == 1
+    assert len(filter_records(records, query="  пейзаж ")) == 1
+    assert filter_records(records, query="собака") == []
+
+
+def test_filter_also_matches_the_model() -> None:
+    records = [_record(model="qwen-image-3", prompt="кот")]
+
+    assert len(filter_records(records, query="qwen")) == 1
+    assert filter_records(records, query="seedream") == []
+
+
+def test_filter_by_facets() -> None:
+    records = [
+        _record(provider_id="aitunnel", model="muse-image", status="ok"),
+        _record(provider_id="polza", model="qwen/image", status="error"),
+    ]
+
+    assert len(filter_records(records, provider="polza")) == 1
+    assert len(filter_records(records, model="muse-image")) == 1
+    assert len(filter_records(records, status="error")) == 1
+    assert len(filter_records(records)) == 2
+
+
+def test_filter_combines_facets_and_phrase() -> None:
+    records = [
+        _record(provider_id="polza", prompt="Черничка", status="ok"),
+        _record(provider_id="aitunnel", prompt="Черничка", status="ok"),
+        _record(provider_id="polza", prompt="Луна", status="ok"),
+    ]
+
+    found = filter_records(records, query="Черничка", provider="polza")
+
+    assert len(found) == 1
+    assert found[0].provider_id == "polza"
+
+
+def test_filter_options_lists_distinct_values() -> None:
+    records = [
+        _record(provider_id="polza", model="qwen/image", status="ok"),
+        _record(provider_id="aitunnel", model="muse-image", status="error"),
+        _record(provider_id="polza", model="qwen/image", status="ok"),
+    ]
+
+    providers, models, statuses = filter_options(records)
+
+    assert providers == ["aitunnel", "polza"]
+    assert models == ["muse-image", "qwen/image"]
+    assert statuses == ["error", "ok"]

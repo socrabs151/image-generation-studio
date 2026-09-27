@@ -112,6 +112,42 @@ def totals_by_model(records: Iterable[HistoryRecord]) -> list[GroupTotal]:
     return sorted(groups, key=lambda group: (-group.spent_rub, group.name))
 
 
+def filter_records(
+    records: Iterable[HistoryRecord],
+    query: str = "",
+    provider: str = "",
+    model: str = "",
+    status: str = "",
+) -> list[HistoryRecord]:
+    """Narrow ``records`` down to a search phrase and the chosen facets.
+
+    The phrase is matched case-insensitively against the prompt and the model. Empty
+    facet values mean "any".
+    """
+    needle = query.strip().lower()
+    result = []
+    for record in records:
+        if needle and needle not in record.prompt.lower() and needle not in record.model.lower():
+            continue
+        if provider and record.provider_id != provider:
+            continue
+        if model and record.model != model:
+            continue
+        if status and record.status != status:
+            continue
+        result.append(record)
+    return result
+
+
+def filter_options(records: Iterable[HistoryRecord]) -> tuple[list[str], list[str], list[str]]:
+    """Distinct providers, models and statuses, sorted for the filter controls."""
+    records = list(records)
+    providers = sorted({record.provider_id for record in records if record.provider_id})
+    models = sorted({record.model for record in records if record.model})
+    statuses = sorted({record.status for record in records if record.status})
+    return providers, models, statuses
+
+
 def to_csv(records: Sequence[HistoryRecord]) -> str:
     """Render records as CSV text."""
     buffer = io.StringIO()
