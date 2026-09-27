@@ -182,6 +182,47 @@ class ParamsPanel(QFrame):
         """Selected aspect ratio, or ``None`` when auto/unset."""
         return self._value(self.aspect_ratio)
 
+    def apply_values(self, values: dict) -> list[str]:
+        """Preselect recorded parameter values; report the ones that no longer fit.
+
+        Used when a request is restored from the history: a model may have dropped a
+        value since then, and the field is then left as the model offers it.
+        """
+        unknown: list[str] = []
+        combos = (
+            ("quality", self.quality),
+            ("resolution", self.resolution),
+            ("aspect_ratio", self.aspect_ratio),
+            ("output_format", self.format),
+            ("background", self.background),
+        )
+        for name, combo in combos:
+            wanted = values.get(name)
+            if wanted in (None, ""):
+                continue
+            index = combo.findText(str(wanted))
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            else:
+                unknown.append(f"{name}={wanted}")
+
+        seed = values.get("seed")
+        if seed is not None:
+            self.seed.setText(str(seed))
+        count = values.get("n")
+        if count:
+            self.n_field.setValue(min(int(count), self.n_field.maximum()))
+
+        passthrough = values.get("passthrough") or {}
+        for name, field in self._passthrough_fields.items():
+            value = passthrough.get(name)
+            if value is not None:
+                field.setText(str(value))
+        for name, value in passthrough.items():
+            if name not in self._passthrough_fields:
+                unknown.append(f"{name}={value}")
+        return unknown
+
     def selected_format(self) -> str | None:
         """Selected output format, or ``None`` when auto/unset."""
         return self._value(self.format)

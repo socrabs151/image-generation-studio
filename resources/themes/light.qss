@@ -144,6 +144,29 @@ QTreeWidget#docsTree::branch:has-children:open {
 QLabel#docsTitle { font-size: 11pt; font-weight: 600; color: #1f2430; }
 QTextBrowser#docsViewer { background-color: #ffffff; border: 1px solid #d5d9e0; border-radius: 6px; }
 
+/* Таблицы: тот же сдержанный стиль выделения, что и у дерева документации */
+QTableWidget {
+    background-color: #ffffff;
+    alternate-background-color: #f7f8fa;
+    border: 1px solid #d5d9e0;
+    border-radius: 6px;
+    gridline-color: #eceef2;
+    selection-background-color: #eef3ff;
+    selection-color: #2f6fed;
+    outline: none;
+}
+QTableWidget::item { padding: 3px 6px; color: #3a4252; }
+QTableWidget::item:selected { background-color: #eef3ff; color: #2f6fed; }
+QTableWidget::item:hover { background-color: #f2f4f8; }
+QHeaderView::section {
+    background-color: #eef0f4;
+    color: #5a6472;
+    border: none;
+    border-bottom: 1px solid #d5d9e0;
+    padding: 5px 6px;
+}
+QScrollArea#thumbsScroll { background: transparent; border: none; }
+
 /* Числовое поле «Кол-во»: своя обёртка вместо QSpinBox */
 QFrame#numberField {
     background-color: #ffffff;

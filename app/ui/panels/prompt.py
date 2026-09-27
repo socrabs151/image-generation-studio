@@ -57,6 +57,10 @@ class PromptPanel(QFrame):
         """Current prompt text."""
         return self.editor.toPlainText().strip()
 
+    def set_prompt(self, text: str) -> None:
+        """Replace the prompt text."""
+        self.editor.setPlainText(text)
+
     def set_busy(self, busy: bool) -> None:
         """Toggle the generate/stop buttons for a running request."""
         self.generate.setEnabled(not busy)

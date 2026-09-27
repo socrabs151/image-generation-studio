@@ -33,11 +33,11 @@ from app.logging_setup import get_logger
 from app.providers import create_provider, display_name, provider_choices
 from app.services.catalog_service import CatalogResult, CatalogService
 from app.services.generation_service import GenerationOutcome, GenerationService
-from app.services.history_store import HistoryStore
+from app.services.history_store import HistoryRecord, HistoryStore
 from app.services.keystore import KeyStore
 from app.services.settings_store import SettingsStore
 from app.ui.dialogs.docs import DocsWindow
-from app.ui.dialogs.history import HistoryWindow
+from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
 from app.ui.panels.log import LogPanel
@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         self._pool = QThreadPool.globalInstance()
         self._worker: FunctionWorker | None = None
         self._models: list[ModelInfo] = []
+        self._pending_restore: GenerationRequest | None = None
         self._docs_window: DocsWindow | None = None
         self._history_window: HistoryWindow | None = None
         self._theme_actions: dict[str, QAction] = {}
@@ -390,11 +391,77 @@ class MainWindow(QMainWindow):
     def open_history(self) -> None:
         """Open the history window."""
         if self._history_window is None:
-            self._history_window = HistoryWindow(self._history, parent=self)
+            self._history_window = HistoryWindow(
+                self._history,
+                on_use=self._history_use_prompt,
+                on_repeat=self._history_repeat,
+                parent=self,
+            )
         else:
             self._history_window.reload()
         self._history_window.show()
         self._history_window.raise_()
+
+    def _history_use_prompt(self, record: HistoryRecord) -> None:
+        """Put the prompt of a history entry into the editor."""
+        self.prompt.set_prompt(record.prompt)
+        self.log.info(f"Prompt taken from the history: {record.timestamp}")
+
+    def _history_repeat(self, record: HistoryRecord) -> None:
+        """Fill the form with a past request without generating anything."""
+        request = repeat_request(record)
+        if not record.has_request_snapshot:
+            self.log.warning(
+                "This entry predates parameter recording: only the prompt and the "
+                "model were restored."
+            )
+        self.prompt.set_prompt(request.prompt)
+        self._pending_restore = request
+
+        if request.provider_id != self._settings.default_provider:
+            index = self._provider_combo.findData(request.provider_id)
+            if index < 0:
+                self.log.warning(f"Unknown provider in the entry: {request.provider_id}")
+                self._pending_restore = None
+                return
+            # Switching the provider reloads its catalog; the model can only be
+            # picked afterwards, so the rest of the restore waits for that.
+            self._provider_combo.setCurrentIndex(index)
+            return
+        self._apply_pending_restore()
+
+    def _apply_pending_restore(self) -> None:
+        """Select the recorded model and restore its parameters."""
+        request = self._pending_restore
+        if request is None:
+            return
+        self._pending_restore = None
+
+        if not self._select_model(request.model):
+            self.log.warning(
+                f'Model "{request.model}" is not in the current catalog, so it was not '
+                "selected; the remaining parameters are filled in."
+            )
+            return
+        unknown = self.params.apply_values(request.request)
+        if unknown:
+            self.log.warning("No longer supported by the model: " + ", ".join(unknown))
+        for path in request.reference_paths:
+            self.workspace.reference.set_from_file(path)
+        if request.reference_paths:
+            self.log.info(f"Reference restored: {Path(request.reference_paths[0]).name}")
+        self.log.info(
+            "Parameters restored from the history. Nothing was generated — press "
+            "Generate when the request looks right."
+        )
+
+    def _select_model(self, model_id: str) -> bool:
+        """Select a model in the list by id."""
+        for index, model in enumerate(self._models):
+            if model.id == model_id:
+                self._model_combo.setCurrentIndex(index)
+                return True
+        return False
 
     # ---------- worker plumbing ----------
     def _run(self, function, *args, on_done, on_fail, **kwargs) -> None:
@@ -424,6 +491,8 @@ class MainWindow(QMainWindow):
         if self._models:
             self._model_combo.setCurrentIndex(0)
             self._on_model_changed(0)
+        # A Repeat across providers waits here: the model only exists now.
+        self._apply_pending_restore()
 
     def _on_catalog_failed(self, message: str) -> None:
         self.log.error(f"Catalog load failed: {message}")
