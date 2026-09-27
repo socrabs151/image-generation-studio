@@ -36,6 +36,7 @@ class ReferenceArea(QLabel):
         self.setAcceptDrops(True)
         self._data: bytes | None = None
         self._pixmap: QPixmap | None = None
+        self._source_path = ""
         self._reset_text()
 
     def has_reference(self) -> bool:
@@ -54,6 +55,7 @@ class ReferenceArea(QLabel):
         """Forget the current reference image."""
         self._data = None
         self._pixmap = None
+        self._source_path = ""
         self.setPixmap(QPixmap())
         self._reset_text()
         self.referenceChanged.emit()
@@ -65,10 +67,18 @@ class ReferenceArea(QLabel):
                 self._set_data(handle.read())
         except OSError as exc:
             self.setText(f"Cannot read image: {exc}")
+            return
+        # Remembered so a request can be restored from the history later.
+        self._source_path = str(path)
 
     def set_from_bytes(self, data: bytes) -> None:
         """Set the reference image from raw bytes."""
+        self._source_path = ""
         self._set_data(data)
+
+    def source_path(self) -> str:
+        """Path the reference was loaded from, empty for a pasted image."""
+        return self._source_path
 
     def _set_data(self, data: bytes) -> None:
         image = QImage.fromData(data)

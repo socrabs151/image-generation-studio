@@ -304,6 +304,7 @@ class MainWindow(QMainWindow):
             background=self.params.selected_background(),
             seed=self.params.selected_seed(),
             input_references=self._collect_references(),
+            reference_paths=self._reference_paths(),
             passthrough=self.params.selected_passthrough(),
         )
         try:
@@ -477,6 +478,11 @@ class MainWindow(QMainWindow):
         reference = self.workspace.reference
         data = reference.data()
         return [data] if reference.has_reference() and data else []
+
+    def _reference_paths(self) -> list[str]:
+        """Where the current reference came from, empty when it was pasted."""
+        reference = self.workspace.reference
+        return [reference.source_path()] if reference.source_path() else []
 
     def _can_spend(self) -> bool:
         """Whether the session spend limit allows another request."""

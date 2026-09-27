@@ -26,7 +26,8 @@ CATALOG_CACHE_FILE = DATA_DIR / "catalog_cache.json"
 
 # Schema versions of the settings and history files (used for migrations).
 SETTINGS_SCHEMA_VERSION = 1
-HISTORY_SCHEMA_VERSION = 1
+# Version 2 added the per-request snapshot, the reference paths and the duration.
+HISTORY_SCHEMA_VERSION = 2
 
 # Input limits.
 MAX_REFERENCE_BYTES = 25 * 1024 * 1024

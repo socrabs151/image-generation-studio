@@ -107,6 +107,9 @@ class GenerationRequest:
     seed: int | None = None
     input_references: list[bytes] = field(default_factory=list)
     passthrough: dict = field(default_factory=dict)
+    # Where the reference images were loaded from. Bookkeeping for the history only:
+    # it is never sent to a provider, but it lets the interface restore a request.
+    reference_paths: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

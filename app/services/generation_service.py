@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,12 @@ from app.core.errors import BadParameterError, CancelledError
 from app.core.models import GenerationRequest, GenerationResult, ModelInfo
 from app.core.pricing import reserved_amount
 from app.providers import create_provider
-from app.services.history_store import HistoryRecord, HistoryStore, now_iso
+from app.services.history_store import (
+    HistoryRecord,
+    HistoryStore,
+    now_iso,
+    request_snapshot,
+)
 
 _EXTENSIONS = {
     "image/png": "png",
@@ -167,8 +173,10 @@ class GenerationService:
         if cancel_check is not None and cancel_check():
             raise CancelledError()
         provider = create_provider(request.provider_id, api_key)
+        snapshot = request_snapshot(request)
+        started = time.monotonic()
         try:
-            result = provider.generate(request, timeout=timeout)
+            result = provider.generate(request, timeout=timeout, cancel_check=cancel_check)
         except Exception as exc:
             self._history.add(
                 HistoryRecord(
@@ -179,6 +187,8 @@ class GenerationService:
                     n=request.n,
                     status="error",
                     error=str(exc),
+                    request=snapshot,
+                    duration_seconds=time.monotonic() - started,
                 ),
                 limit=history_limit,
             )
@@ -197,6 +207,8 @@ class GenerationService:
                 cost_rub=result.cost_rub,
                 file_paths=file_paths,
                 status="ok",
+                request=snapshot,
+                duration_seconds=time.monotonic() - started,
             ),
             limit=history_limit,
         )
