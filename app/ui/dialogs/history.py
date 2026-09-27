@@ -39,6 +39,7 @@ from app.services.history_stats import (
     totals_by_model,
 )
 from app.services.history_store import HistoryRecord, HistoryStore
+from app.ui.dialogs.error_dialog import ErrorDialog
 from app.ui.dialogs.export_dialog import ExportDialog
 
 PROMPT_ROLE = Qt.ItemDataRole.UserRole
@@ -124,6 +125,11 @@ class HistoryWindow(QMainWindow):
         self.delete_button.clicked.connect(self._delete_selected)
         self.export_button = QPushButton("Export…")
         self.export_button.clicked.connect(self.export)
+        self.error_button = QPushButton("Show error")
+        self.error_button.clicked.connect(self.show_error_dialog)
+        self.error_button.setVisible(False)
+
+        self._error_shown_for = ""
 
         self.totals_label = QLabel("")
         self.totals_label.setObjectName("docsTitle")
@@ -136,6 +142,7 @@ class HistoryWindow(QMainWindow):
         controls.addWidget(self.repeat_button)
         controls.addWidget(self.open_button)
         controls.addWidget(self.delete_button)
+        controls.addWidget(self.error_button)
         controls.addStretch(1)
         controls.addWidget(self.export_button)
 
@@ -315,13 +322,28 @@ class HistoryWindow(QMainWindow):
     # ---------- details ----------
     def _show_selected(self) -> None:
         record = self.selected_record()
-        self._sync_buttons()
         if record is None:
             self._details.setText("Select an entry to see its parameters.")
             self._clear_thumbnails()
+            self._sync_buttons(None)
             return
         self._details.setText(self._describe(record))
         self._show_thumbnails(record)
+        self._sync_buttons(record)
+        # A failed attempt opens its error right away, once per entry.
+        if record.error and record.id != self._error_shown_for:
+            self._error_shown_for = record.id
+            self.show_error_dialog()
+
+    def show_error_dialog(self) -> None:
+        """Open the error of the selected entry in a modal dialog."""
+        record = self.selected_record()
+        if record is None or not record.error:
+            return
+        context = f"{record.timestamp.replace('T', ' ')} · {record.provider_id}/{record.model}"
+        dialog = ErrorDialog(context, record.error, parent=self)
+        self._error_shown_for = record.id
+        dialog.exec()
 
     @staticmethod
     def _describe(record: HistoryRecord) -> str:
@@ -385,12 +407,20 @@ class HistoryWindow(QMainWindow):
         self._thumbs_scroll.setVisible(bool(record.file_paths))
 
     # ---------- actions ----------
-    def _sync_buttons(self) -> None:
-        has_record = self.selected_record() is not None
-        for button in (self.use_button, self.repeat_button, self.delete_button):
-            button.setEnabled(has_record)
-        record = self.selected_record()
+    def _sync_buttons(self, record: HistoryRecord | None = None) -> None:
+        """Enable the actions that make sense for the given entry.
+
+        The record is passed in because the selection signal can arrive before
+        ``currentItem()`` reports the new row.
+        """
+        if record is None:
+            record = self.selected_record()
+        has_record = record is not None
+        self.use_button.setEnabled(has_record)
+        self.repeat_button.setEnabled(has_record)
+        self.delete_button.setEnabled(has_record)
         self.open_button.setEnabled(bool(record and record.file_paths))
+        self.error_button.setVisible(bool(record and record.error))
 
     def _emit_use(self) -> None:
         record = self.selected_record()
@@ -404,7 +434,12 @@ class HistoryWindow(QMainWindow):
 
     def _open_file(self, *_args) -> None:
         record = self.selected_record()
-        if record and record.file_paths:
+        if record is None:
+            return
+        if record.error:
+            self.show_error_dialog()
+            return
+        if record.file_paths:
             self._open_path(record.file_paths[0])
 
     @staticmethod
