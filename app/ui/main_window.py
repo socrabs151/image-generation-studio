@@ -33,7 +33,7 @@ from app.logging_setup import get_logger
 from app.providers import create_provider, display_name, provider_choices
 from app.services.catalog_service import CatalogResult, CatalogService
 from app.services.generation_service import GenerationOutcome, GenerationService
-from app.services.history_store import HistoryRecord, HistoryStore
+from app.services.history_store import HistoryRecord, HistoryStore, request_snapshot
 from app.services.keystore import KeyStore
 from app.services.settings_store import SettingsStore
 from app.ui.dialogs.docs import DocsWindow
@@ -344,12 +344,20 @@ class MainWindow(QMainWindow):
             self.log.warning("Cancellation requested.")
 
     def _load_reference(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select reference image", "", "Images (*.png *.jpg *.jpeg *.webp *.gif)"
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select reference images", "", "Images (*.png *.jpg *.jpeg *.webp *.gif)"
         )
-        if path:
-            self.workspace.reference.set_from_file(path)
-            self.log.info(f"Reference loaded: {Path(path).name}")
+        if not paths:
+            return
+        added = 0
+        for path in paths:
+            if self.workspace.reference.add_from_file(path):
+                added += 1
+            else:
+                self.log.error(f"Cannot read the image: {Path(path).name}")
+        if added:
+            self.log.info(f"Reference images loaded: {added}.")
+        self._warn_if_too_many_references()
 
     def _paste_reference(self) -> None:
         clipboard_image = QGuiApplication.clipboard().image()
@@ -358,8 +366,23 @@ class MainWindow(QMainWindow):
         buffer = QBuffer()
         buffer.open(QIODevice.OpenModeFlag.ReadWrite)
         clipboard_image.save(buffer, "PNG")
-        self.workspace.reference.set_from_bytes(bytes(buffer.data()))
-        self.log.info("Reference pasted from the clipboard.")
+        if self.workspace.reference.add_from_bytes(bytes(buffer.data())):
+            self.log.info("Reference pasted from the clipboard.")
+        self._warn_if_too_many_references()
+
+    def _warn_if_too_many_references(self) -> None:
+        """Tell the user early when the current model accepts fewer references."""
+        model = self._selected_model()
+        references = self.workspace.reference
+        if model is None or not references.has_reference():
+            return
+        limit = model.max_input_references
+        if limit and references.count() > limit:
+            self.log.warning(
+                f"{model.id} accepts at most {limit} reference image(s), but "
+                f"{references.count()} are loaded. The request will be rejected "
+                "before anything is charged."
+            )
 
     def open_settings(self) -> None:
         """Open the settings dialog and persist changes."""
@@ -443,13 +466,18 @@ class MainWindow(QMainWindow):
                 "selected; the remaining parameters are filled in."
             )
             return
-        unknown = self.params.apply_values(request.request)
+        unknown = self.params.apply_values(request_snapshot(request))
         if unknown:
             self.log.warning("No longer supported by the model: " + ", ".join(unknown))
+        self.workspace.reference.clear()
+        restored = 0
         for path in request.reference_paths:
-            self.workspace.reference.set_from_file(path)
-        if request.reference_paths:
-            self.log.info(f"Reference restored: {Path(request.reference_paths[0]).name}")
+            if self.workspace.reference.add_from_file(path):
+                restored += 1
+        if restored:
+            self.log.info(f"Reference images restored: {restored}.")
+        elif request.reference_paths:
+            self.log.warning("The referenced images are no longer readable.")
         self.log.info(
             "Parameters restored from the history. Nothing was generated — press "
             "Generate when the request looks right."
@@ -544,14 +572,11 @@ class MainWindow(QMainWindow):
         )
 
     def _collect_references(self) -> list[bytes]:
-        reference = self.workspace.reference
-        data = reference.data()
-        return [data] if reference.has_reference() and data else []
+        return self.workspace.reference.data_list()
 
     def _reference_paths(self) -> list[str]:
-        """Where the current reference came from, empty when it was pasted."""
-        reference = self.workspace.reference
-        return [reference.source_path()] if reference.source_path() else []
+        """Where the current references came from; pasted images contribute nothing."""
+        return self.workspace.reference.source_paths()
 
     def _can_spend(self) -> bool:
         """Whether the session spend limit allows another request."""
@@ -589,11 +614,11 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _open_reference_viewer(self) -> None:
-        pixmap = self.workspace.reference.pixmap()
-        if pixmap is None:
+    def _open_reference_viewer(self, index: int = 0) -> None:
+        pixmaps = self.workspace.reference.pixmaps()
+        if not pixmaps:
             return
-        window = ImageViewerWindow([pixmap], parent=self)
+        window = ImageViewerWindow(pixmaps, min(index, len(pixmaps) - 1), parent=self)
         window.show()
         window.raise_()
 

@@ -1,11 +1,13 @@
-"""Workspace panel: reference image input and generation result.
+"""Workspace panel: reference images and the generation result.
 
-The reference area accepts a drag-and-dropped image or a pasted image and exposes
-the loaded bytes. The result area shows one image or a grid when several were
-generated.
+The reference area holds a **list** of images: several files can be loaded at once,
+dropped, or pasted one after another, because models accept up to sixteen references.
+Clicking a thumbnail opens the whole set in a viewer.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
@@ -14,6 +16,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -21,86 +25,165 @@ from PySide6.QtWidgets import (
 from app.core.errors import AppError
 from app.ui.widgets.result_viewer import ResultViewer
 
+_THUMB = 96
+_CLOSE = 20
 
-class ReferenceArea(QLabel):
-    """Drop target for a reference image."""
+
+@dataclass(slots=True)
+class Reference:
+    """One loaded reference image."""
+
+    data: bytes
+    pixmap: QPixmap
+    source_path: str = ""
+
+
+class ReferencePanel(QWidget):
+    """Drop target and thumbnail strip holding every loaded reference image."""
 
     referenceChanged = Signal()
-    referenceActivated = Signal()
+    referenceActivated = Signal(int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("dropArea")
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumHeight(140)
         self.setAcceptDrops(True)
-        self._data: bytes | None = None
-        self._pixmap: QPixmap | None = None
-        self._source_path = ""
-        self._reset_text()
+        self.setMinimumHeight(140)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._items: list[Reference] = []
 
+        self._empty = QLabel("Drop images here\nor click «Load»")
+        self._empty.setObjectName("hint")
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._strip_host = QWidget()
+        self._strip_host.setObjectName("scrollViewport")
+        self._strip = QHBoxLayout(self._strip_host)
+        self._strip.setContentsMargins(0, 0, 0, 0)
+        self._strip.setSpacing(6)
+        # Keep the thumbnails at the top instead of floating in the middle.
+        self._strip.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("thumbsScroll")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll.setWidget(self._strip_host)
+        self._scroll.setVisible(False)
+
+        self._count = QLabel("")
+        self._count.setObjectName("hint")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+        layout.addWidget(self._empty, stretch=1)
+        layout.addWidget(self._scroll, stretch=1)
+        layout.addWidget(self._count)
+
+    # ---------- contents ----------
     def has_reference(self) -> bool:
-        """Whether a reference image is loaded."""
-        return self._data is not None
+        """Whether at least one reference image is loaded."""
+        return bool(self._items)
 
-    def data(self) -> bytes | None:
-        """Raw bytes of the reference image, if any."""
-        return self._data
+    def count(self) -> int:
+        """Number of loaded reference images."""
+        return len(self._items)
 
-    def pixmap(self) -> QPixmap | None:
-        """Full-resolution pixmap of the reference image, if any."""
-        return self._pixmap
+    def references(self) -> list[Reference]:
+        """The loaded references, in the order they were added."""
+        return list(self._items)
+
+    def data_list(self) -> list[bytes]:
+        """Raw bytes of every reference, ready for a request."""
+        return [item.data for item in self._items]
+
+    def pixmaps(self) -> list[QPixmap]:
+        """Full-resolution pixmaps of every reference."""
+        return [item.pixmap for item in self._items]
+
+    def source_paths(self) -> list[str]:
+        """Files the references were loaded from; pasted images contribute nothing."""
+        return [item.source_path for item in self._items if item.source_path]
 
     def clear(self) -> None:
-        """Forget the current reference image."""
-        self._data = None
-        self._pixmap = None
-        self._source_path = ""
-        self.setPixmap(QPixmap())
-        self._reset_text()
-        self.referenceChanged.emit()
+        """Forget every reference image."""
+        if not self._items:
+            return
+        self._items.clear()
+        self._rebuild()
 
-    def set_from_file(self, path: str) -> None:
-        """Load a reference image from a file path."""
+    def add_from_file(self, path: str) -> bool:
+        """Append the image at ``path``; report whether it was readable."""
         try:
             with open(path, "rb") as handle:
-                self._set_data(handle.read())
-        except OSError as exc:
-            self.setText(f"Cannot read image: {exc}")
-            return
-        # Remembered so a request can be restored from the history later.
-        self._source_path = str(path)
+                data = handle.read()
+        except OSError:
+            return False
+        return self.add_from_bytes(data, source_path=str(path))
 
-    def set_from_bytes(self, data: bytes) -> None:
-        """Set the reference image from raw bytes."""
-        self._source_path = ""
-        self._set_data(data)
-
-    def source_path(self) -> str:
-        """Path the reference was loaded from, empty for a pasted image."""
-        return self._source_path
-
-    def _set_data(self, data: bytes) -> None:
+    def add_from_bytes(self, data: bytes, source_path: str = "") -> bool:
+        """Append an image from raw bytes."""
         image = QImage.fromData(data)
         if image.isNull():
-            self.setText("Unsupported image format")
-            return
-        self._data = data
-        self._pixmap = QPixmap.fromImage(image)
-        self._update_pixmap(image)
+            return False
+        self._items.append(
+            Reference(data=data, pixmap=QPixmap.fromImage(image), source_path=source_path)
+        )
+        self._rebuild()
+        return True
+
+    def remove(self, index: int) -> None:
+        """Drop one reference by index."""
+        if 0 <= index < len(self._items):
+            del self._items[index]
+            self._rebuild()
+
+    def _rebuild(self) -> None:
+        """Rebuild the thumbnail strip and the counter."""
+        while self._strip.count():
+            item = self._strip.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        for index in range(len(self._items)):
+            self._strip.addWidget(self._build_thumb(index))
+        self._strip.addStretch(1)
+
+        has_items = bool(self._items)
+        self._empty.setVisible(not has_items)
+        self._scroll.setVisible(has_items)
+        self._count.setText(
+            "" if not has_items else f"{len(self._items)} reference image(s) loaded"
+        )
         self.referenceChanged.emit()
 
-    def _update_pixmap(self, image: QImage) -> None:
-        pixmap = QPixmap.fromImage(image).scaled(
-            self.width() or 260,
-            self.minimumHeight(),
+    def _build_thumb(self, index: int) -> QWidget:
+        """One thumbnail with a small remove button in the corner."""
+        holder = QWidget()
+        holder.setFixedSize(_THUMB, _THUMB)
+
+        thumb = QPushButton(holder)
+        thumb.setGeometry(0, 0, _THUMB, _THUMB)
+        thumb.setCursor(Qt.CursorShape.PointingHandCursor)
+        thumb.setToolTip(self._items[index].source_path or f"Reference {index + 1}")
+        scaled = self._items[index].pixmap.scaled(
+            _THUMB - 4,
+            _THUMB - 4,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        self.setPixmap(pixmap)
+        thumb.setIcon(scaled)
+        thumb.setIconSize(scaled.size())
+        thumb.clicked.connect(lambda _=False, i=index: self.referenceActivated.emit(i))
 
-    def _reset_text(self) -> None:
-        self.setText("Drop an image here\nor click «Load»")
+        close = QPushButton("×", holder)
+        close.setGeometry(_THUMB - _CLOSE - 2, 2, _CLOSE, _CLOSE)
+        close.setToolTip("Remove this reference")
+        close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        close.clicked.connect(lambda _=False, i=index: self.remove(i))
+        return holder
 
     # ---------- drag & drop ----------
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
@@ -110,21 +193,16 @@ class ReferenceArea(QLabel):
     def dropEvent(self, event) -> None:  # noqa: N802 - Qt API
         mime = event.mimeData()
         if mime.hasUrls():
-            path = mime.urls()[0].toLocalFile()
-            if path:
-                self.set_from_file(path)
+            for url in mime.urls():
+                path = url.toLocalFile()
+                if path:
+                    self.add_from_file(path)
         elif mime.hasImage():
-            image = QImage(mime.imageData())
+            image = mime.imageData()
             if not image.isNull():
-                self.set_from_bytes(bytes(QPixmap.fromImage(image).toImage().bits()))
+                self.add_from_bytes(bytes(QPixmap.fromImage(image).toImage().bits()))
         event.acceptProposedAction()
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
-        # Clicking the reference opens it in a separate viewer window.
-        if event.button() == Qt.MouseButton.LeftButton and self.has_reference():
-            self.referenceActivated.emit()
-        else:
-            super().mousePressEvent(event)
 
 
 class WorkspacePanel(QFrame):
@@ -158,15 +236,16 @@ class WorkspacePanel(QFrame):
         column.setContentsMargins(8, 8, 8, 8)
         column.setSpacing(6)
 
-        label = QLabel("Reference image")
+        label = QLabel("Reference images")
         label.setObjectName("panelTitle")
         column.addWidget(label)
 
-        self.reference = ReferenceArea()
+        self.reference = ReferencePanel()
         column.addWidget(self.reference, stretch=1)
 
         buttons = QHBoxLayout()
         load = QPushButton("Load")
+        load.setToolTip("One or several images can be selected at once")
         load.clicked.connect(self.loadRequested.emit)
         clear = QPushButton("Clear")
         clear.clicked.connect(self.clearRequested.emit)
