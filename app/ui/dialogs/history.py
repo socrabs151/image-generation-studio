@@ -364,7 +364,9 @@ class HistoryWindow(QMainWindow):
             parts.append("request: not recorded (entry predates the change)")
         references = record.request.get("reference_paths") if record.request else None
         if references:
-            parts.append("reference: " + ", ".join(references))
+            names = [Path(path).name or path for path in references]
+            shown = names[:3] + ([f"+{len(names) - 3}"] if len(names) > 3 else [])
+            parts.append("reference: " + ", ".join(shown))
         return " · ".join(parts)
 
     def _clear_thumbnails(self) -> None:
