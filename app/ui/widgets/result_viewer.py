@@ -175,7 +175,7 @@ class ResultViewer(QWidget):
         self._columns = 0
 
         self._placeholder = QLabel("Generated images will appear here")
-        self._placeholder.setObjectName("dropArea")
+        self._placeholder.setObjectName("resultEmpty")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
 

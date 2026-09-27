@@ -44,4 +44,12 @@ class ProviderTimeoutError(ProviderError):
 
 
 class CancelledError(AppError):
-    """The operation was cancelled by the user."""
+    """The operation was cancelled by the user.
+
+    The default message matters: the UI recognises a cancellation by the word
+    «cancelled» in the text, so raising this without arguments would show an
+    empty error box.
+    """
+
+    def __init__(self, message: str = "Generation cancelled by the user.") -> None:
+        super().__init__(message)

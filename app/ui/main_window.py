@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
         self.workspace.result_viewer.imageActivated.connect(self._open_result_viewer)
         self.prompt.generateRequested.connect(self.generate)
         self.prompt.stopRequested.connect(self._cancel_generation)
+        self.prompt.clearRequested.connect(self._clear_prompt)
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
@@ -246,7 +247,10 @@ class MainWindow(QMainWindow):
         help_menu.addAction(QAction("About", self))
 
     def _install_shortcuts(self) -> None:
-        QShortcut(QKeySequence("Ctrl+Return"), self, self.generate)
+        # «Return» is the numeric keypad, «Enter» the main block; bind both so the
+        # documented Ctrl+Enter works on an ordinary keyboard.
+        for sequence in ("Ctrl+Return", "Ctrl+Enter"):
+            QShortcut(QKeySequence(sequence), self, self.generate)
         QShortcut(QKeySequence("Ctrl+V"), self, self._paste_reference)
         QShortcut(QKeySequence("Delete"), self, self.workspace.reference.clear)
 
@@ -342,6 +346,11 @@ class MainWindow(QMainWindow):
         if self._worker is not None:
             self._worker.cancel()
             self.log.warning("Cancellation requested.")
+
+    def _clear_prompt(self) -> None:
+        """Empty the prompt editor."""
+        self.prompt.set_prompt("")
+        self.prompt.editor.setFocus()
 
     def _load_reference(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(

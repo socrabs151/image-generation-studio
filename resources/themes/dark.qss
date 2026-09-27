@@ -57,7 +57,15 @@ QLabel#panelTitle {
     letter-spacing: 0.5px;
     padding: 1px 8px;
 }
-QLabel#dropArea {
+QWidget#dropArea {
+    background-color: #1b1b29;
+    border: 1px dashed #3a3a52;
+    border-radius: 4px;
+}
+QWidget#dropArea QLabel {
+    color: #9a9ab0;
+}
+QLabel#resultEmpty {
     background-color: #1b1b29;
     border: 1px dashed #3a3a52;
     border-radius: 4px;
