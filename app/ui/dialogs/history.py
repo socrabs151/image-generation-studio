@@ -89,9 +89,9 @@ class HistoryWindow(QMainWindow):
         self.search.setPlaceholderText("Search prompts…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._apply_filters)
-        self.provider_filter = self._combo("Provider: ")
-        self.model_filter = self._combo("Model: ")
-        self.status_filter = self._combo("Status: ")
+        self.provider_filter = self._combo()
+        self.model_filter = self._combo()
+        self.status_filter = self._combo()
         for combo in (self.provider_filter, self.model_filter, self.status_filter):
             combo.currentIndexChanged.connect(self._apply_filters)
 
@@ -147,9 +147,9 @@ class HistoryWindow(QMainWindow):
         filters = QHBoxLayout()
         filters.setSpacing(6)
         filters.addWidget(self.search, stretch=1)
-        filters.addWidget(self.provider_filter)
-        filters.addWidget(self.model_filter)
-        filters.addWidget(self.status_filter)
+        self._add_facet(filters, "Provider", self.provider_filter, 140)
+        self._add_facet(filters, "Model", self.model_filter, 300)
+        self._add_facet(filters, "Status", self.status_filter, 110)
         layout.addLayout(filters)
         layout.addWidget(self.totals_label)
         layout.addWidget(self.breakdown_label)
@@ -288,11 +288,20 @@ class HistoryWindow(QMainWindow):
 
     # ---------- helpers ----------
     @staticmethod
-    def _combo(label: str) -> QComboBox:
-        """A filter combo showing its label as the first, "any", entry."""
+    def _combo() -> QComboBox:
+        """A filter combo; its label is a separate widget so it never gets replaced."""
         combo = QComboBox()
-        combo.addItem(label + _ANY, "")
+        combo.addItem(_ANY, "")
         return combo
+
+    @staticmethod
+    def _add_facet(row: QHBoxLayout, label: str, combo: QComboBox, width: int) -> None:
+        """Add a labelled filter combo to the filter row."""
+        caption = QLabel(label)
+        caption.setObjectName("hint")
+        combo.setMaximumWidth(width)
+        row.addWidget(caption)
+        row.addWidget(combo)
 
     def _select_id(self, record_id: str) -> None:
         if not record_id:
