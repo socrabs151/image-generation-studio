@@ -65,6 +65,9 @@ QWidget#dropArea {
 QWidget#dropArea QLabel {
     color: #8a93a3;
 }
+QWidget#dropArea:focus {
+    border-color: #3b5bdb;
+}
 QLabel#resultEmpty {
     background-color: #f0f2f6;
     border: 1px dashed #b9c2d0;

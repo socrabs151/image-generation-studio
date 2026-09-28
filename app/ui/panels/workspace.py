@@ -49,9 +49,16 @@ class ReferencePanel(QWidget):
         self.setAcceptDrops(True)
         self.setMinimumHeight(140)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        # Focusable on purpose: Ctrl+V pastes an image only while this panel holds
+        # the focus, so that pasting text into the fields keeps working.
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.setToolTip(
+            "Drop images here, use Load or Paste, or press Ctrl+V while this panel "
+            "is focused."
+        )
         self._items: list[Reference] = []
 
-        self._empty = QLabel("Drop images here\nor click «Load»")
+        self._empty = QLabel("Drop images here\nor use Load / Paste")
         self._empty.setObjectName("hint")
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -211,6 +218,7 @@ class WorkspacePanel(QFrame):
     """Left column: reference image and a result view."""
 
     loadRequested = Signal()
+    pasteRequested = Signal()
     clearRequested = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -249,9 +257,14 @@ class WorkspacePanel(QFrame):
         load = QPushButton("Load")
         load.setToolTip("One or several images can be selected at once")
         load.clicked.connect(self.loadRequested.emit)
-        clear = QPushButton("Clear")
+        paste = QPushButton("Paste")
+        paste.setToolTip("Add the image copied to the clipboard (or Ctrl+V)")
+        paste.clicked.connect(self.pasteRequested.emit)
+        clear = QPushButton("Clear all")
+        clear.setToolTip("Remove every reference image")
         clear.clicked.connect(self.clearRequested.emit)
         buttons.addWidget(load)
+        buttons.addWidget(paste)
         buttons.addWidget(clear)
         column.addLayout(buttons)
         return box

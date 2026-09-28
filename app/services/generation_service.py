@@ -106,7 +106,12 @@ class GenerationService:
 
     def validate(self, request: GenerationRequest, model: ModelInfo | None) -> None:
         """Raise :class:`BadParameterError` when the request is invalid."""
-        if not request.prompt.strip():
+        if model is None:
+            if not request.prompt.strip():
+                raise BadParameterError("Prompt must not be empty.")
+        elif model.supports_generation and not request.prompt.strip():
+            # A model without text-to-image (an upscaler, for example) works on the
+            # picture alone, so demanding a prompt would make it unusable.
             raise BadParameterError("Prompt must not be empty.")
         if request.n < 1:
             raise BadParameterError("Image count must be at least 1.")

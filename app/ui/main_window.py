@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(container)
 
         self.workspace.loadRequested.connect(self._load_reference)
+        self.workspace.pasteRequested.connect(self._paste_reference)
         self.workspace.clearRequested.connect(self.workspace.reference.clear)
         self.workspace.reference.referenceActivated.connect(self._open_reference_viewer)
         self.workspace.result_viewer.imageActivated.connect(self._open_result_viewer)
@@ -269,8 +270,13 @@ class MainWindow(QMainWindow):
         # documented Ctrl+Enter works on an ordinary keyboard.
         for sequence in ("Ctrl+Return", "Ctrl+Enter"):
             QShortcut(QKeySequence(sequence), self, self.generate)
-        QShortcut(QKeySequence("Ctrl+V"), self, self._paste_reference)
-        QShortcut(QKeySequence("Delete"), self, self.workspace.reference.clear)
+        # Pasting an image belongs to the reference panel, not to the whole window:
+        # a window-wide shortcut would swallow Ctrl+V in the prompt and in Seed.
+        paste_image = QShortcut(QKeySequence("Ctrl+V"), self.workspace.reference)
+        paste_image.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        paste_image.activated.connect(self._paste_reference)
+        # No Delete shortcut: one keystroke wiped every reference, and the panel has
+        # a Clear all button and a remove button on each thumbnail.
 
     # ---------- actions ----------
     def refresh_catalog(self) -> None:

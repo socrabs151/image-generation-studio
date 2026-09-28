@@ -161,6 +161,31 @@ def test_model_needing_a_reference_accepts_one(service: GenerationService) -> No
     service.validate(_request(input_references=[png_header]), model)
 
 
+def test_upscaler_works_without_a_prompt(service: GenerationService) -> None:
+    # A model without text-to-image works on the picture alone: demanding a prompt
+    # made the upscale model unusable.
+    model = _model(
+        supports_generation=False,
+        requires_reference=True,
+        max_input_references=1,
+        supports_edit=True,
+        allowed_passthrough=["upscale_factor"],
+        required_parameters=[],
+    )
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+    service.validate(
+        _request(prompt="", input_references=[png_header], passthrough={"upscale_factor": "2"}),
+        model,
+    )
+
+
+def test_text_to_image_still_requires_a_prompt(service: GenerationService) -> None:
+    with pytest.raises(BadParameterError) as info:
+        service.validate(_request(prompt="   "), _model(supports_generation=True))
+    assert "Prompt" in str(info.value)
+
+
 def test_extension_follows_the_bytes_when_no_media_type(
     service: GenerationService, tmp_path: Path
 ) -> None:
