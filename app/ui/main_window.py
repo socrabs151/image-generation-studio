@@ -12,20 +12,16 @@ from pathlib import Path
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, Qt, QThreadPool
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
     QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QStatusBar,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -45,6 +41,7 @@ from app.ui.dialogs.docs import DocsWindow
 from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
+from app.ui.focus_rules import is_text_input
 from app.ui.panels.log import LogPanel
 from app.ui.panels.params import ParamsPanel
 from app.ui.panels.prompt import PromptPanel
@@ -54,17 +51,17 @@ from app.workers import FunctionWorker
 
 LOGGER = get_logger()
 
-# Widgets that own the clipboard for text: Ctrl+V must stay theirs.
-_TEXT_INPUTS = (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
-
 
 def _is_text_input(widget: QWidget | None) -> bool:
-    """Whether the focused widget handles a text paste itself."""
+    """Whether the focused widget handles a text paste itself.
+
+    The decision rules live in :mod:`app.ui.focus_rules` so that they can be
+    tested without a display server.
+    """
     if widget is None:
         return False
-    if isinstance(widget, _TEXT_INPUTS):
-        return True
-    return isinstance(widget, QComboBox) and widget.isEditable()
+    editable_combo = isinstance(widget, QComboBox) and widget.isEditable()
+    return is_text_input(type(widget).__name__, editable_combo=editable_combo)
 
 
 class MainWindow(QMainWindow):

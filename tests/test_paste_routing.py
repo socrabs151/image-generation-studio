@@ -1,40 +1,64 @@
-"""Tests for the clipboard routing helpers.
+"""Tests for the keyboard ownership rule, and a guard for the CI constraint.
 
-The behaviour itself needs a window, but the decision logic is plain Python: which
-widget owns a text paste, and what is in the clipboard.
+No PySide6 import here on purpose: the CI runner has no ``libEGL``, so a test
+that imports Qt fails at collection. :func:`test_no_test_module_imports_qt`
+enforces that for the whole suite.
 """
 
 from __future__ import annotations
 
-import os
+import pathlib
+import re
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from app.ui.focus_rules import TEXT_INPUT_CLASSES, is_text_input
 
-from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QTextEdit
-
-from app.ui.main_window import _is_text_input
-
-application = QApplication.instance() or QApplication([])
+TESTS_DIR = pathlib.Path(__file__).resolve().parent
+_QT_IMPORT = re.compile(r"^\s*(?:from|import)\s+PySide6", re.MULTILINE)
 
 
-def test_line_edit_owns_its_paste() -> None:
-    assert _is_text_input(QLineEdit()) is True
+def test_line_edits_own_their_paste() -> None:
+    assert is_text_input("QLineEdit") is True
+    assert is_text_input("QTextEdit") is True
+    assert is_text_input("QPlainTextEdit") is True
 
 
-def test_text_edit_owns_its_paste() -> None:
-    assert _is_text_input(QTextEdit()) is True
+def test_spin_boxes_own_their_paste() -> None:
+    # NumberField in the params panel is a QLineEdit; a raw spin box counts too.
+    assert is_text_input("QDoubleSpinBox") is True
+    assert is_text_input("QDateTimeEdit") is True
 
 
-def test_plain_combo_box_does_not() -> None:
-    # A non-editable combo has no line edit, so Ctrl+V is ours.
-    assert _is_text_input(QComboBox()) is False
+def test_plain_combo_box_does_not_own_the_paste() -> None:
+    # A combo without a line edit takes no text, so Ctrl+V is ours.
+    assert is_text_input("QComboBox") is False
 
 
-def test_editable_combo_box_does() -> None:
-    combo = QComboBox()
-    combo.setEditable(True)
-    assert _is_text_input(combo) is True
+def test_editable_combo_box_owns_the_paste() -> None:
+    assert is_text_input("QComboBox", editable_combo=True) is True
 
 
-def test_nothing_focused_is_ours() -> None:
-    assert _is_text_input(None) is False
+def test_everything_else_is_ours() -> None:
+    assert is_text_input("ReferencePanel") is False
+    assert is_text_input("ResultViewer") is False
+    assert is_text_input("MarkdownView") is False
+    assert is_text_input("QLabel") is False
+
+
+def test_no_unknown_spin_box_class_is_missing() -> None:
+    # A guard on the data itself: every QAbstractSpinBox subclass Qt ships with
+    # has to be listed, or Ctrl+V would be stolen from a numeric field.
+    for name in ("QSpinBox", "QDoubleSpinBox", "QDateEdit", "QTimeEdit", "QDateTimeEdit"):
+        assert name in TEXT_INPUT_CLASSES
+
+
+def test_no_test_module_imports_qt() -> None:
+    offenders = [
+        path.name
+        for path in sorted(TESTS_DIR.glob("test_*.py"))
+        if _QT_IMPORT.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        f"{offenders} import PySide6. The CI runner has no libEGL, so a Qt import "
+        "fails at collection. Move the logic under test into a Qt-free module, as "
+        "app/ui/markdown.py and app/ui/focus_rules.py do."
+    )
