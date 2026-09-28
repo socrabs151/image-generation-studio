@@ -49,6 +49,9 @@ class Settings:
     session_limit_rub: float = 0.0
     # Provider request timeout in seconds.
     generation_timeout: int = 180
+    # Models marked as favourites, as "provider_id:model_id" so that the same model
+    # name at two aggregators stays two separate entries.
+    favorite_models: list[str] = field(default_factory=list)
     providers: dict[str, ProviderSettings] = field(
         default_factory=lambda: {
             "aitunnel": ProviderSettings(),
@@ -101,6 +104,12 @@ class SettingsStore:
         }
         if not providers:
             providers = Settings().providers
+        favorites_raw = raw.get("favorite_models")
+        favorites = (
+            [str(item) for item in favorites_raw if isinstance(item, str)]
+            if isinstance(favorites_raw, list)
+            else []
+        )
         return Settings(
             schema_version=int(raw.get("schema_version", SETTINGS_SCHEMA_VERSION)),
             default_provider=raw.get("default_provider", DEFAULT_PROVIDER),
@@ -112,6 +121,7 @@ class SettingsStore:
             confirm_threshold_rub=float(raw.get("confirm_threshold_rub", 50.0)),
             session_limit_rub=float(raw.get("session_limit_rub", 0.0)),
             generation_timeout=int(raw.get("generation_timeout", 180)),
+            favorite_models=favorites,
             providers=providers,
         )
 

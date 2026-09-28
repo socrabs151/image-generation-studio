@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -42,6 +43,7 @@ from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
 from app.ui.focus_rules import is_text_input
+from app.ui.model_list import combo_label, favourite_key, is_favourite, visible_models
 from app.ui.panels.log import LogPanel
 from app.ui.panels.params import ParamsPanel
 from app.ui.panels.prompt import PromptPanel
@@ -77,6 +79,7 @@ class MainWindow(QMainWindow):
         self._pool = QThreadPool.globalInstance()
         self._worker: FunctionWorker | None = None
         self._models: list[ModelInfo] = []
+        self._visible: list[ModelInfo] = []
         self._pending_restore: GenerationRequest | None = None
         self._docs_window: DocsWindow | None = None
         self._history_window: HistoryWindow | None = None
@@ -209,9 +212,8 @@ class MainWindow(QMainWindow):
         self.log.info(f"Provider switched to {display_name(str(provider_id))}.")
 
         self._models = []
-        self._model_combo.blockSignals(True)
-        self._model_combo.clear()
-        self._model_combo.blockSignals(False)
+        self._visible = []
+        self._rebuild_model_list()
         self.params.set_model(None)
         self._status_model.setText("Model: —")
         self.prompt.set_cost_hint("")
@@ -228,6 +230,31 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         row.addWidget(QLabel("Model:"))
+
+        self._model_search = QLineEdit()
+        self._model_search.setObjectName("modelSearch")
+        self._model_search.setPlaceholderText("Search: name, description, provider")
+        self._model_search.setClearButtonEnabled(True)
+        self._model_search.setToolTip(
+            "Type to narrow the list below. Matches the model id, its description "
+            "and the aggregator."
+        )
+        self._model_search.setMaximumWidth(320)
+        self._model_search.textChanged.connect(self._apply_model_filter)
+        row.addWidget(self._model_search)
+
+        self._fav_button = QPushButton("☆")
+        self._fav_button.setObjectName("favButton")
+        self._fav_button.setCheckable(True)
+        self._fav_button.setFixedWidth(34)
+        self._fav_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fav_button.setToolTip(
+            "Mark the selected model as a favourite. Favourites go to the top of the "
+            "list and are marked with ★."
+        )
+        self._fav_button.toggled.connect(self._on_favourite_toggled)
+        row.addWidget(self._fav_button)
+
         self._model_combo = QComboBox()
         self._model_combo.setMinimumWidth(420)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
@@ -486,7 +513,7 @@ class MainWindow(QMainWindow):
         if provider_changed:
             self._select_provider(self._settings.default_provider)
             self._models = []
-            self._model_combo.clear()
+            self._rebuild_model_list()
             self.params.set_model(None)
             self._balance_label.setText("—")
             self.refresh_catalog()
@@ -597,31 +624,81 @@ class MainWindow(QMainWindow):
     # ---------- worker callbacks ----------
     def _on_catalog_loaded(self, result: CatalogResult) -> None:
         self._models = result.models
-        self._model_combo.blockSignals(True)
-        self._model_combo.clear()
-        for model in self._models:
-            self._model_combo.addItem(model.display_name())
-        self._model_combo.blockSignals(False)
         source = "cache" if result.from_cache else "network"
         self.log.info(f"Catalog loaded: {len(self._models)} models ({source}).")
         if self._models:
-            self._model_combo.setCurrentIndex(self._index_of_default_model())
-            self._on_model_changed(self._model_combo.currentIndex())
+            wanted = self._pending_restore.model_id if self._pending_restore else None
+            wanted = wanted or self._settings.default_model
+            if not self._select_model(wanted, quiet=True):
+                self._select_model(self._models[0].id, quiet=True)
+        else:
+            self._rebuild_model_list()
         # A Repeat across providers waits here: the model only exists now.
         self._apply_pending_restore()
 
-    def _index_of_default_model(self) -> int:
-        """Where the model from the settings sits in the combo, 0 when it is absent."""
-        preferred = self._settings.default_model
-        for index, model in enumerate(self._models):
-            if model.id == preferred:
-                return index
-        if preferred:
-            self.log.info(
-                f"The model from the settings ({preferred}) is not in the current "
-                "catalog, so the first one is selected."
+    # ---------- model list, search and favourites ----------
+    def _rebuild_model_list(self, keep: str = "") -> None:
+        """Refill the combo from the filtered list, keeping ``keep`` selected."""
+        favourites = self._settings.favorite_models
+        self._visible = visible_models(self._models, self._model_search.text(), favourites)
+        self._model_combo.blockSignals(True)
+        self._model_combo.clear()
+        for model in self._visible:
+            self._model_combo.addItem(combo_label(model, favourites))
+        self._model_combo.blockSignals(False)
+        if keep:
+            for index, model in enumerate(self._visible):
+                if model.id == keep:
+                    self._model_combo.setCurrentIndex(index)
+                    break
+        self._update_fav_button()
+        self._sync_generate_state()
+
+    def _apply_model_filter(self, _text: str = "") -> None:
+        """Apply the search text to the model list."""
+        previous = self._selected_model()
+        self._rebuild_model_list(previous.id if previous is not None else "")
+        if not self._visible and self._models:
+            self._status_model.setText("Model: —")
+            self.prompt.set_cost_hint("")
+            self.log.warning(
+                f"No model matches «{self._model_search.text().strip()}»."
             )
-        return 0
+        elif previous is None and self._visible:
+            self._on_model_changed(self._model_combo.currentIndex())
+
+    def _update_fav_button(self) -> None:
+        """Show whether the selected model is a favourite."""
+        model = self._selected_model()
+        favourite = is_favourite(model, self._settings.favorite_models)
+        self._fav_button.blockSignals(True)
+        self._fav_button.setChecked(favourite)
+        self._fav_button.setText("★" if favourite else "☆")
+        self._fav_button.setEnabled(model is not None)
+        self._fav_button.blockSignals(False)
+
+    def _on_favourite_toggled(self, checked: bool) -> None:
+        """Add or remove the selected model from the favourites list."""
+        model = self._selected_model()
+        if model is None:
+            return
+        key = favourite_key(model)
+        favorites = [
+            item for item in self._settings.favorite_models if item != key
+        ]
+        if checked:
+            favorites.append(key)
+            self.log.info(f"Favourite: {model.id}.")
+        elif key in self._settings.favorite_models:
+            self.log.info(f"Favourite removed: {model.id}.")
+        self._settings.favorite_models = favorites
+        self._settings_store.save(self._settings)
+        # Favourites move to the top, so the list has to be rebuilt.
+        self._rebuild_model_list(model.id)
+
+    def _sync_generate_state(self) -> None:
+        """Enable the Generate button only when a model is selected."""
+        self.prompt.generate.setEnabled(self._selected_model() is not None)
 
     def _on_catalog_failed(self, message: str) -> None:
         self.log.error(f"Catalog load failed: {message}")
@@ -654,13 +731,31 @@ class MainWindow(QMainWindow):
     # ---------- helpers ----------
     def _selected_model(self) -> ModelInfo | None:
         index = self._model_combo.currentIndex()
-        if 0 <= index < len(self._models):
-            return self._models[index]
+        if 0 <= index < len(self._visible):
+            return self._visible[index]
         return None
+
+    def _select_model(self, model_id: str, quiet: bool = False) -> bool:
+        """Select a model by id, dropping the search when it hides the model."""
+        if model_id and not any(model.id == model_id for model in self._visible):
+            # A model recorded earlier can be filtered out by the current search.
+            self._model_search.blockSignals(True)
+            self._model_search.clear()
+            self._model_search.blockSignals(False)
+            self._rebuild_model_list()
+        for index, model in enumerate(self._visible):
+            if model.id == model_id:
+                self._model_combo.setCurrentIndex(index)
+                if not quiet:
+                    self.log.info(f"Model selected: {model_id}.")
+                return True
+        return False
 
     def _on_model_changed(self, _index: int) -> None:
         model = self._selected_model()
         self.params.set_model(model)
+        self._update_fav_button()
+        self._sync_generate_state()
         if model is None:
             self._status_model.setText("Model: —")
             self.prompt.set_cost_hint("")

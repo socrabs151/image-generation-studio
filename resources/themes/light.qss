@@ -131,6 +131,12 @@ QFrame#viewerTopBar { background-color: #eef1f6; border-bottom: 1px solid #d7dce
 QFrame#viewerBottomBar { background-color: #eef1f6; border-top: 1px solid #d7dce5; }
 QLabel#viewerCounter { color: #1a1d26; font-weight: 600; padding: 0 6px; }
 QLabel#viewerZoom { color: #6a7385; }
+
+/* Список моделей: поиск и избранное */
+QLineEdit#modelSearch { padding: 3px 8px; }
+QPushButton#favButton { font-size: 13pt; color: #8a93a3; padding: 2px 0; }
+QPushButton#favButton:checked { color: #c98a06; border-color: #e0a92a; }
+QPushButton#favButton:disabled { color: #b6bcc8; border-color: #dde2ea; }
 QPushButton#filmThumb {
     background-color: #ffffff;
     border: 1px solid #cfd6e2;
