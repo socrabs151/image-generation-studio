@@ -9,18 +9,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QIODevice, Qt, QThreadPool
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, Qt, QThreadPool
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QStatusBar,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -48,6 +53,18 @@ from app.ui.theme import AVAILABLE_THEMES, apply_theme
 from app.workers import FunctionWorker
 
 LOGGER = get_logger()
+
+# Widgets that own the clipboard for text: Ctrl+V must stay theirs.
+_TEXT_INPUTS = (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
+
+
+def _is_text_input(widget: QWidget | None) -> bool:
+    """Whether the focused widget handles a text paste itself."""
+    if widget is None:
+        return False
+    if isinstance(widget, _TEXT_INPUTS):
+        return True
+    return isinstance(widget, QComboBox) and widget.isEditable()
 
 
 class MainWindow(QMainWindow):
@@ -270,13 +287,27 @@ class MainWindow(QMainWindow):
         # documented Ctrl+Enter works on an ordinary keyboard.
         for sequence in ("Ctrl+Return", "Ctrl+Enter"):
             QShortcut(QKeySequence(sequence), self, self.generate)
-        # Pasting an image belongs to the reference panel, not to the whole window:
-        # a window-wide shortcut would swallow Ctrl+V in the prompt and in Seed.
-        paste_image = QShortcut(QKeySequence("Ctrl+V"), self.workspace.reference)
-        paste_image.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        paste_image.activated.connect(self._paste_reference)
-        # No Delete shortcut: one keystroke wiped every reference, and the panel has
-        # a Clear all button and a remove button on each thumbnail.
+        # Ctrl+V is handled as a key event rather than a window shortcut: a shortcut
+        # would either lose the text fields or never fire, while the owner wants the
+        # image to go into the references whenever no text field has the focus.
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_V
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            and self._paste_applies(obj)
+        ):
+            self._paste_reference()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _paste_applies(self, obj) -> bool:
+        """Whether this Ctrl+V belongs to the workspace rather than to a text field."""
+        if not isinstance(obj, QWidget) or not self.isAncestorOf(obj):
+            return False
+        return not _is_text_input(QApplication.focusWidget())
 
     # ---------- actions ----------
     def refresh_catalog(self) -> None:
@@ -393,14 +424,41 @@ class MainWindow(QMainWindow):
         self._warn_if_too_many_references()
 
     def _paste_reference(self) -> None:
-        clipboard_image = QGuiApplication.clipboard().image()
-        if clipboard_image.isNull():
+        """Add the clipboard image, or the copied image file, to the references.
+
+        The clipboard holds different things depending on what was copied: bitmap
+        data when an image is copied, but a file list when the file itself is copied
+        in the explorer. Both are accepted; anything else is reported in the log
+        instead of doing nothing quietly.
+        """
+        clipboard = QGuiApplication.clipboard()
+        image = clipboard.image()
+        if not image.isNull():
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.ReadWrite)
+            image.save(buffer, "PNG")
+            if self.workspace.reference.add_from_bytes(bytes(buffer.data())):
+                self.log.info("Reference pasted from the clipboard.")
+            self._warn_if_too_many_references()
             return
-        buffer = QBuffer()
-        buffer.open(QIODevice.OpenModeFlag.ReadWrite)
-        clipboard_image.save(buffer, "PNG")
-        if self.workspace.reference.add_from_bytes(bytes(buffer.data())):
-            self.log.info("Reference pasted from the clipboard.")
+
+        mime = clipboard.mimeData()
+        paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
+        paths = [path for path in paths if path]
+        if not paths:
+            self.log.warning(
+                "The clipboard holds no image. Copy an image itself or an image file "
+                "first."
+            )
+            return
+        added = 0
+        for path in paths:
+            if self.workspace.reference.add_from_file(path):
+                added += 1
+            else:
+                self.log.error(f"Cannot read the image: {Path(path).name}")
+        if added:
+            self.log.info(f"Reference pasted from the clipboard: {added} file(s).")
         self._warn_if_too_many_references()
 
     def _warn_if_too_many_references(self) -> None:

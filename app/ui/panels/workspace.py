@@ -49,16 +49,16 @@ class ReferencePanel(QWidget):
         self.setAcceptDrops(True)
         self.setMinimumHeight(140)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        # Focusable on purpose: Ctrl+V pastes an image only while this panel holds
-        # the focus, so that pasting text into the fields keeps working.
+        # Focusable so that a dropped or pasted image is obvious as the current
+        # target, and so the panel can be reached from the keyboard.
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setToolTip(
-            "Drop images here, use Load or Paste, or press Ctrl+V while this panel "
-            "is focused."
+            "Drop images here, or use Load and Paste. Ctrl+V adds the image from the "
+            "clipboard whenever no text field has the focus."
         )
         self._items: list[Reference] = []
 
-        self._empty = QLabel("Drop images here\nor use Load / Paste")
+        self._empty = QLabel("Drop images here\nor use Load / Paste / Ctrl+V")
         self._empty.setObjectName("hint")
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
