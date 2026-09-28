@@ -284,9 +284,9 @@ class WorkspacePanel(QFrame):
         column.addWidget(self.result_viewer, stretch=1)
         return box
 
-    def show_images(self, images: list[QPixmap]) -> None:
+    def show_images(self, images: list[QPixmap], paths: list[str] | None = None) -> None:
         """Show the generated images in the result viewer."""
-        self.result_viewer.set_images(images)
+        self.result_viewer.set_images(images, paths)
 
     def show_error(self, message: str) -> None:
         """Show an error message in the result area."""

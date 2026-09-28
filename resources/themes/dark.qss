@@ -126,6 +126,24 @@ QLabel#resultThumb:hover { border-color: #6c8cff; background-color: #232338; }
 QLabel#resultError { color: #f87171; padding: 6px; }
 QTextEdit#errorText { color: #fca5a5; background-color: #1b1b29; }
 
+/* Просмотрщик картинок: холст, панели и плёнка */
+QFrame#viewerTopBar { background-color: #20202f; border-bottom: 1px solid #2f2f45; }
+QFrame#viewerBottomBar { background-color: #20202f; border-top: 1px solid #2f2f45; }
+QLabel#viewerCounter { color: #e6e6f0; font-weight: 600; padding: 0 6px; }
+QLabel#viewerZoom { color: #9a9ab0; }
+QPushButton#filmThumb {
+    background-color: #1b1b29;
+    border: 1px solid #3a3a52;
+    border-radius: 4px;
+}
+QPushButton#filmThumb:hover { border-color: #6c8cff; }
+QPushButton#filmThumb:checked {
+    border: 2px solid #6c8cff;
+    background-color: #232338;
+}
+QPushButton[active="true"] { border-color: #6c8cff; color: #cfd8ff; }
+QScrollArea#filmScroll { background-color: #20202f; border: none; }
+
 /* Дерево документации: округлённое выделение вместо грубой полосы */
 QTreeWidget#docsTree {
     background-color: #1b1b29;

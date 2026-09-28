@@ -639,7 +639,7 @@ class MainWindow(QMainWindow):
 
     def _on_generated(self, outcome: GenerationOutcome) -> None:
         pixmaps = [WorkspacePanel.bytes_to_pixmap(image.data) for image in outcome.result.images]
-        self.workspace.show_images(pixmaps)
+        self.workspace.show_images(pixmaps, list(outcome.file_paths))
         cost = format_money(outcome.result.cost_rub)
         self._update_session_spend(outcome.result.cost_rub)
         self.log.info(f"Done. Cost: {cost} ₽. Files saved: {len(outcome.file_paths)}.")
@@ -720,7 +720,12 @@ class MainWindow(QMainWindow):
         pixmaps = self.workspace.reference.pixmaps()
         if not pixmaps:
             return
-        window = ImageViewerWindow(pixmaps, min(index, len(pixmaps) - 1), parent=self)
+        window = ImageViewerWindow(
+            pixmaps,
+            min(index, len(pixmaps) - 1),
+            self.workspace.reference.source_paths(),
+            parent=self,
+        )
         window.show()
         window.raise_()
 
@@ -728,7 +733,9 @@ class MainWindow(QMainWindow):
         images = self.workspace.result_viewer.images()
         if not images:
             return
-        window = ImageViewerWindow(images, index, parent=self)
+        window = ImageViewerWindow(
+            images, index, self.workspace.result_viewer.paths(), parent=self
+        )
         window.show()
         window.raise_()
 

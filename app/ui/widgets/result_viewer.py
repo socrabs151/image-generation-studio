@@ -7,20 +7,18 @@ full size with zoom and navigation.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
+    QScrollBar,
     QVBoxLayout,
     QWidget,
 )
 
-_FIT = 0.0
-_STEP = 1.25
 _THUMB_SIZE = 180
 _THUMB_PADDING = 6
 _CELL = _THUMB_SIZE + 2 * _THUMB_PADDING
@@ -28,57 +26,59 @@ _CELL_SPACING = 8
 
 
 class ZoomableView(QWidget):
-    """Zoomable image display: fit, 100%, zoom in/out and navigation."""
+    """A scrollable, zoomable image display.
+
+    Three zoom modes: fit to the window, an explicit scale, and 100% meaning one
+    image pixel per screen pixel (also correct on a high-DPI screen). The image can be
+    panned by dragging, zoomed with the wheel around the pointer, and the window can be
+    resized freely: the canvas grows instead of being pinned to a fixed size.
+    """
+
+    # Zoom bounds, as a fraction of the original image size.
+    MIN_SCALE = 0.02
+    MAX_SCALE = 16.0
+    STEP = 1.25
+
+    scaleChanged = Signal(float)  # effective scale, 1.0 == 100%
+    panningChanged = Signal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._images: list[QPixmap] = []
         self._index = 0
-        self._scale = _FIT
+        self._scale: float | None = None  # None means "fit to the window"
+        self._drag_at: QPoint | None = None
+        self._drag_scroll: QPoint | None = None
 
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.addWidget(self._button("Fit", self._fit))
-        toolbar.addWidget(self._button("100%", self._zoom_100))
-        toolbar.addWidget(self._button("−", self._zoom_out))
-        toolbar.addWidget(self._button("+", self._zoom_in))
-        toolbar.addStretch(1)
-        self._nav = self._button("◀ 1/1 ▶", self._next)
-        self._nav.setVisible(False)
-        toolbar.addWidget(self._nav)
-        toolbar.addStretch(1)
-
-        self._view = QLabel("No image")
-        self._view.setObjectName("canvas")
-        self._view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._canvas = QLabel("No image")
+        self._canvas.setObjectName("canvas")
+        self._canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
         self._scroll.setObjectName("resultScroll")
-        self._scroll.setWidget(self._view)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._scroll.setWidget(self._canvas)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.addLayout(toolbar)
-        layout.addWidget(self._scroll, stretch=1)
+        layout.setSpacing(0)
+        layout.addWidget(self._scroll)
 
-    @staticmethod
-    def _button(text: str, slot) -> QPushButton:
-        button = QPushButton(text)
-        button.clicked.connect(slot)
-        return button
-
+    # ---------- content ----------
     def set_images(self, images: list[QPixmap], index: int = 0) -> None:
         """Show a set of images, starting at ``index``."""
         self._images = list(images)
-        self._index = min(index, max(0, len(self._images) - 1)) if self._images else 0
-        self._scale = _FIT
         if not self._images:
-            self._view.setText("No image")
-            self._nav.setVisible(False)
+            self._index = 0
+            self._canvas.setText("No image")
+            self._canvas.setPixmap(QPixmap())
+            self._canvas.setMinimumSize(0, 0)
+            self.scaleChanged.emit(1.0)
             return
-        self._update()
+        self._index = max(0, min(index, len(self._images) - 1))
+        self._render()
 
     def current_pixmap(self) -> QPixmap | None:
         """The currently displayed pixmap, if any."""
@@ -86,54 +86,225 @@ class ZoomableView(QWidget):
             return self._images[self._index]
         return None
 
-    def _update(self) -> None:
-        if not self._images:
-            return
-        pixmap = self._images[self._index]
-        scaled = self._scaled(pixmap)
-        self._view.setPixmap(scaled)
-        self._view.setFixedSize(scaled.size())
-        count = len(self._images)
-        self._nav.setText(f"◀ {self._index + 1}/{count} ▶")
-        self._nav.setVisible(count > 1)
+    def images(self) -> list[QPixmap]:
+        """The whole set of images."""
+        return list(self._images)
 
-    def _scaled(self, pixmap: QPixmap) -> QPixmap:
-        if self._scale == _FIT:
-            viewport = self._scroll.viewport().size()
-            if viewport.width() <= 0 or viewport.height() <= 0:
-                return pixmap
-            return pixmap.scaled(
-                viewport,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+    def set_index(self, index: int) -> None:
+        """Show another image of the set."""
+        if not self._images or not 0 <= index < len(self._images):
+            return
+        self._index = index
+        self._render()
+        # A new image starts at its top-left corner, not where the previous one was.
+        self._scroll.horizontalScrollBar().setValue(0)
+        self._scroll.verticalScrollBar().setValue(0)
+
+    def index(self) -> int:
+        """Index of the displayed image."""
+        return self._index
+
+    def count(self) -> int:
+        """Number of images in the set."""
+        return len(self._images)
+
+    # ---------- zoom ----------
+    @property
+    def is_fit(self) -> bool:
+        """Whether the image is scaled to the window."""
+        return self._scale is None
+
+    def _device_scale(self) -> float:
+        """Screen pixels per logical pixel, so 100% stays true on a high-DPI screen."""
+        screen = QApplication.primaryScreen()
+        return screen.devicePixelRatio() if screen is not None else 1.0
+
+    def _fit_scale(self) -> float:
+        """The scale that makes the image fit the visible area."""
+        pixmap = self.current_pixmap()
+        if pixmap is None:
+            return 1.0
+        viewport = self._scroll.viewport().size()
+        if pixmap.isNull() or viewport.width() <= 0 or viewport.height() <= 0:
+            return 1.0
+        return min(
+            viewport.width() / pixmap.width(),
+            viewport.height() / pixmap.height(),
+        )
+
+    def effective_scale(self) -> float:
+        """Scale relative to the screen, so 1.0 means one image pixel per screen pixel."""
+        scale = self._fit_scale() if self.is_fit else float(self._scale or 1.0)
+        return scale * self._device_scale()
+
+    def zoom_in(self) -> None:
+        """Magnify around the centre of the view."""
+        self._zoom_by(self.STEP)
+
+    def zoom_out(self) -> None:
+        """Shrink around the centre of the view."""
+        self._zoom_by(1 / self.STEP)
+
+    def zoom_fit(self) -> None:
+        """Scale the image to the window."""
+        if self.is_fit:
+            return
+        self._scale = None
+        self._render()
+
+    def zoom_actual(self) -> None:
+        """Show the image at its real pixel size."""
+        self._zoom_to(1.0)
+
+    def _zoom_by(self, factor: float, anchor: QPoint | None = None) -> None:
+        """Change the scale by a factor, keeping the pointed-at place in place."""
+        self._zoom_to(self.effective_scale() * factor, anchor)
+
+    def _zoom_to(self, target: float, anchor: QPoint | None = None) -> None:
+        """Move to an absolute scale, keeping the pointed-at place of the image still."""
+        target = min(self.MAX_SCALE, max(self.MIN_SCALE, target))
+        current = self.effective_scale()
+        if abs(target - current) < 1e-6:
+            return
+        # The anchor is a point in canvas coordinates inside the visible area.
+        point = anchor if anchor is not None else self._visible_center()
+        before = self._point_in_image(point)
+        self._scale = target / self._device_scale()
+        self._render()
+        after = self._image_point_in_canvas(before)
+        self._scroll_to(self._scroll.horizontalScrollBar(), int(after.x() - point.x()))
+        self._scroll_to(self._scroll.verticalScrollBar(), int(after.y() - point.y()))
+
+    def _visible_center(self) -> QPoint:
+        return self._canvas.rect().center()
+
+    def _point_in_image(self, point: QPoint) -> QPointF:
+        """Where a canvas point sits in the original image."""
+        pixmap = self.current_pixmap()
+        if pixmap is None or pixmap.isNull():
+            return QPointF(0, 0)
+        scaled = self._scaled()
+        offset = QPointF(
+            (self._canvas.width() - scaled.width()) / 2,
+            (self._canvas.height() - scaled.height()) / 2,
+        )
+        relative = QPointF(point) - offset
+        scale = self.effective_scale() or 1.0
+        return QPointF(relative.x() / scale, relative.y() / scale)
+
+    def _image_point_in_canvas(self, point: QPointF) -> QPointF:
+        """Where a point of the original image sits in canvas coordinates."""
+        pixmap = self.current_pixmap()
+        if pixmap is None:
+            return QPointF(0, 0)
+        scaled = self._scaled()
+        offset = QPointF(
+            (self._canvas.width() - scaled.width()) / 2,
+            (self._canvas.height() - scaled.height()) / 2,
+        )
+        scale = self.effective_scale() or 1.0
+        return QPointF(point.x() * scale + offset.x(), point.y() * scale + offset.y())
+
+    @staticmethod
+    def _scroll_to(bar: QScrollBar, delta: int) -> None:
+        bar.setValue(max(bar.minimum(), min(bar.maximum(), bar.value() + delta)))
+
+    def _scaled(self) -> QPixmap:
+        """The pixmap at the current scale."""
+        pixmap = self.current_pixmap()
+        if pixmap is None or pixmap.isNull():
+            return QPixmap()
+        scale = self.effective_scale()
+        size = QSize(
+            max(1, round(pixmap.width() * scale)),
+            max(1, round(pixmap.height() * scale)),
+        )
+        if size == pixmap.size():
+            return pixmap
         return pixmap.scaled(
-            pixmap.width() * self._scale,
-            pixmap.height() * self._scale,
+            size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
 
-    def _fit(self) -> None:
-        self._scale = _FIT
-        self._update()
+    def _render(self) -> None:
+        """Repaint the canvas and report the new scale."""
+        scaled = self._scaled()
+        if scaled.isNull():
+            self._canvas.setPixmap(QPixmap())
+            self._canvas.setMinimumSize(0, 0)
+            return
+        self._canvas.setPixmap(scaled)
+        # A minimum size, not a fixed one: the scroll area keeps the canvas at least
+        # as large as the image, and lets it grow to fill the window when it fits.
+        self._canvas.setMinimumSize(scaled.size())
+        self._canvas.resize(scaled.size())
+        self._update_scroll_mode()
+        self.scaleChanged.emit(self.effective_scale())
 
-    def _zoom_100(self) -> None:
-        self._scale = 1.0
-        self._update()
+    def _update_scroll_mode(self) -> None:
+        """Scrollbars only when the image is larger than the window."""
+        scaled = self._scaled()
+        scrollable = scaled.width() > self._scroll.viewport().width() + 2 or (
+            scaled.height() > self._scroll.viewport().height() + 2
+        )
+        policy = (
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if scrollable
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll.setHorizontalScrollBarPolicy(policy)
+        self._scroll.setVerticalScrollBarPolicy(policy)
 
-    def _zoom_in(self) -> None:
-        self._scale = _STEP if self._scale == _FIT else self._scale * _STEP
-        self._update()
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        # In fit mode the image follows the window size.
+        if self.is_fit and self.current_pixmap() is not None:
+            self._render()
 
-    def _zoom_out(self) -> None:
-        self._scale = 1.0 / _STEP if self._scale == _FIT else self._scale / _STEP
-        self._update()
+    # ---------- interaction ----------
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if self.current_pixmap() is None:
+            return
+        steps = event.angleDelta().y() / 120.0
+        if steps == 0:
+            return
+        factor = self.STEP**steps
+        self._zoom_by(factor, self._canvas.mapFrom(event.position().toPoint()))
+        event.accept()
 
-    def _next(self) -> None:
-        if len(self._images) > 1:
-            self._index = (self._index + 1) % len(self._images)
-            self._update()
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_at = event.position().toPoint()
+            self._drag_scroll = QPoint(
+                self._scroll.horizontalScrollBar().value(),
+                self._scroll.verticalScrollBar().value(),
+            )
+            self._canvas.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.panningChanged.emit(True)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if self._drag_at is None or self._drag_scroll is None:
+            super().mouseMoveEvent(event)
+            return
+        delta = event.position().toPoint() - self._drag_at
+        self._scroll.horizontalScrollBar().setValue(self._drag_scroll.x() - delta.x())
+        self._scroll.verticalScrollBar().setValue(self._drag_scroll.y() - delta.y())
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if self._drag_at is not None:
+            self._drag_at = None
+            self._drag_scroll = None
+            self._canvas.setCursor(Qt.CursorShape.ArrowCursor)
+            self.panningChanged.emit(False)
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt API
+        # Double click is the usual shortcut between "fit" and "real size".
+        if self.is_fit:
+            self.zoom_actual()
+        else:
+            self.zoom_fit()
 
 
 class Thumbnail(QLabel):
@@ -172,6 +343,7 @@ class ResultViewer(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._images: list[QPixmap] = []
+        self._paths: list[str] = []
         self._columns = 0
 
         self._placeholder = QLabel("Generated images will appear here")
@@ -209,9 +381,14 @@ class ResultViewer(QWidget):
         layout.addWidget(self._scroll, stretch=1)
         self._scroll.setVisible(False)
 
-    def set_images(self, images: list[QPixmap]) -> None:
-        """Replace the grid with thumbnails of the given images."""
+    def set_images(self, images: list[QPixmap], paths: list[str] | None = None) -> None:
+        """Replace the grid with thumbnails of the given images.
+
+        ``paths`` are the files behind the images, when known: the viewer shows the
+        file name, the size on disk and offers to open the folder.
+        """
         self._images = list(images)
+        self._paths = list(paths) if paths else []
         self._message.setVisible(False)
         self._message.clear()
         self._placeholder.setVisible(not self._images)
@@ -233,6 +410,16 @@ class ResultViewer(QWidget):
     def images(self) -> list[QPixmap]:
         """The currently displayed images."""
         return list(self._images)
+
+    def paths(self) -> list[str]:
+        """The files behind the images, when known."""
+        return list(self._paths)
+
+    def path_at(self, index: int) -> str:
+        """The file behind one image, empty when it is unknown."""
+        if 0 <= index < len(self._paths):
+            return self._paths[index]
+        return ""
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
