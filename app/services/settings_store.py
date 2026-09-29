@@ -52,6 +52,8 @@ class Settings:
     # Models marked as favourites, as "provider_id:model_id" so that the same model
     # name at two aggregators stays two separate entries.
     favorite_models: list[str] = field(default_factory=list)
+    # Models used lately, same key format, newest first.
+    recent_models: list[str] = field(default_factory=list)
     providers: dict[str, ProviderSettings] = field(
         default_factory=lambda: {
             "aitunnel": ProviderSettings(),
@@ -105,11 +107,7 @@ class SettingsStore:
         if not providers:
             providers = Settings().providers
         favorites_raw = raw.get("favorite_models")
-        favorites = (
-            [str(item) for item in favorites_raw if isinstance(item, str)]
-            if isinstance(favorites_raw, list)
-            else []
-        )
+        favorites = _string_list(favorites_raw)
         return Settings(
             schema_version=int(raw.get("schema_version", SETTINGS_SCHEMA_VERSION)),
             default_provider=raw.get("default_provider", DEFAULT_PROVIDER),
@@ -122,6 +120,7 @@ class SettingsStore:
             session_limit_rub=float(raw.get("session_limit_rub", 0.0)),
             generation_timeout=int(raw.get("generation_timeout", 180)),
             favorite_models=favorites,
+            recent_models=_string_list(raw.get("recent_models")),
             providers=providers,
         )
 
@@ -145,3 +144,10 @@ class SettingsStore:
         except OSError:
             Path(handle.name).unlink(missing_ok=True)
             raise
+
+
+def _string_list(value: object) -> list[str]:
+    """Read a list of strings from the settings file, ignoring a broken value."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]

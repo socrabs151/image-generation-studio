@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -43,7 +44,14 @@ from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
 from app.ui.focus_rules import is_text_input
-from app.ui.model_list import combo_label, favourite_key, is_favourite, visible_models
+from app.ui.model_list import (
+    combo_label,
+    favourite_key,
+    is_favourite,
+    recent_models,
+    remember_model,
+    visible_models,
+)
 from app.ui.panels.log import LogPanel
 from app.ui.panels.params import ParamsPanel
 from app.ui.panels.prompt import PromptPanel
@@ -81,6 +89,7 @@ class MainWindow(QMainWindow):
         self._models: list[ModelInfo] = []
         self._visible: list[ModelInfo] = []
         self._pending_restore: GenerationRequest | None = None
+        self._pending_recent: str | None = None
         self._docs_window: DocsWindow | None = None
         self._history_window: HistoryWindow | None = None
         self._theme_actions: dict[str, QAction] = {}
@@ -255,6 +264,18 @@ class MainWindow(QMainWindow):
         self._fav_button.toggled.connect(self._on_favourite_toggled)
         row.addWidget(self._fav_button)
 
+        self._recent_button = QPushButton("Recent ▾")
+        self._recent_button.setObjectName("recentButton")
+        self._recent_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._recent_button.setToolTip(
+            "Models used lately, newest first. Picking one switches the aggregator "
+            "and selects it."
+        )
+        self._recent_menu = QMenu(self._recent_button)
+        self._recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
+        self._recent_button.setMenu(self._recent_menu)
+        row.addWidget(self._recent_button)
+
         self._model_combo = QComboBox()
         self._model_combo.setMinimumWidth(420)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
@@ -408,6 +429,7 @@ class MainWindow(QMainWindow):
                 return
 
         self.prompt.set_busy(True)
+        self._remember_recent_model(model)
         self.log.info(f"Generating with {model.id}…")
         self._run(
             self._generation.generate,
@@ -628,7 +650,8 @@ class MainWindow(QMainWindow):
         self.log.info(f"Catalog loaded: {len(self._models)} models ({source}).")
         if self._models:
             wanted = self._pending_restore.model_id if self._pending_restore else None
-            wanted = wanted or self._settings.default_model
+            wanted = wanted or self._pending_recent or self._settings.default_model
+            self._pending_recent = None
             if not self._select_model(wanted, quiet=True):
                 self._select_model(self._models[0].id, quiet=True)
         else:
@@ -695,6 +718,69 @@ class MainWindow(QMainWindow):
         self._settings_store.save(self._settings)
         # Favourites move to the top, so the list has to be rebuilt.
         self._rebuild_model_list(model.id)
+
+    def _remember_recent_model(self, model: ModelInfo) -> None:
+        """Put a used model at the head of the lately used list."""
+        recents = remember_model(self._settings.recent_models, model)
+        if recents == self._settings.recent_models:
+            return
+        self._settings.recent_models = recents
+        self._settings_store.save(self._settings)
+
+    def _rebuild_recent_menu(self) -> None:
+        """Fill the lately used menu right before it opens."""
+        self._recent_menu.clear()
+        recents = recent_models(self._models, self._settings.recent_models)
+        self._recent_button.setEnabled(bool(recents))
+        self._recent_button.setToolTip(
+            "Models used lately, newest first. Picking one switches the aggregator "
+            "and selects it."
+            if recents
+            else "No model has been used yet."
+        )
+        if not recents:
+            action = self._recent_menu.addAction("Nothing here yet")
+            action.setEnabled(False)
+            return
+        for model, in_catalog in recents:
+            if not in_catalog:
+                # The aggregator dropped the model: show it, but do not offer it.
+                # Its price and limits are unknown now, so no full label.
+                action = self._recent_menu.addAction(
+                    f"{model.id} ({model.provider_id}) — not in the catalog"
+                )
+                action.setEnabled(False)
+                continue
+            mark = "★ " if is_favourite(model, self._settings.favorite_models) else ""
+            action = self._recent_menu.addAction(mark + model.display_name())
+            action.triggered.connect(
+                lambda _checked=False, target=model: self._use_recent(target)
+            )
+        self._recent_menu.addSeparator()
+        self._recent_menu.addAction("Clear the list").triggered.connect(
+            self._clear_recent_models
+        )
+
+    def _use_recent(self, model: ModelInfo) -> None:
+        """Select a lately used model, switching the aggregator if needed."""
+        if model.provider_id != self._settings.default_provider:
+            index = self._provider_combo.findData(model.provider_id)
+            if index < 0:
+                self.log.warning(
+                    f"Unknown provider in the lately used list: {model.provider_id}"
+                )
+                return
+            # Switching reloads the catalog, so the model is picked afterwards.
+            self._pending_recent = model.id
+            self._provider_combo.setCurrentIndex(index)
+            return
+        self._select_model(model.id)
+
+    def _clear_recent_models(self) -> None:
+        """Forget every lately used model."""
+        self._settings.recent_models = []
+        self._settings_store.save(self._settings)
+        self.log.info("The list of lately used models is cleared.")
 
     def _sync_generate_state(self) -> None:
         """Enable the Generate button only when a model is selected."""

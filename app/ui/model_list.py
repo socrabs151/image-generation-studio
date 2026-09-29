@@ -12,6 +12,14 @@ from app.core.models import ModelInfo
 
 FAVOURITE_MARK = "★ "
 UNMARKED = "☆"
+# How many lately used models the app keeps.
+RECENT_LIMIT = 10
+
+
+def split_key(key: str) -> tuple[str, str]:
+    """Split a "provider_id:model_id" key back into its two parts."""
+    provider, _, model_id = key.partition(":")
+    return provider, model_id
 
 
 def favourite_key(model: ModelInfo) -> str:
@@ -66,3 +74,37 @@ def toggle_favourite(favourites: Iterable[str], model: ModelInfo) -> list[str]:
     result = [item for item in favourites if item != key]
     result.append(key)
     return result
+
+
+def remember_model(
+    recents: Iterable[str], model: ModelInfo, limit: int = RECENT_LIMIT
+) -> list[str]:
+    """Put a model at the head of the lately used list.
+
+    A model used again moves back to the head, so the list stays unique and
+    never grows past ``limit``.
+    """
+    key = favourite_key(model)
+    return [key, *[item for item in recents if item != key]][:limit]
+
+
+def recent_models(
+    models: Iterable[ModelInfo], recents: Iterable[str]
+) -> list[tuple[ModelInfo, bool]]:
+    """The lately used models as (model, is_in_current_catalog) pairs.
+
+    Models that are not in the catalog right now are kept, marked as missing:
+    a model can disappear from an aggregator between two sessions, and silently
+    dropping it would hide why the entry is there.
+    """
+    by_key = {favourite_key(model): model for model in models}
+    found: list[tuple[ModelInfo, bool]] = []
+    for key in recents:
+        model = by_key.get(key)
+        if model is not None:
+            found.append((model, True))
+        else:
+            provider, model_id = split_key(key)
+            if model_id:
+                found.append((ModelInfo(id=model_id, provider_id=provider), False))
+    return found

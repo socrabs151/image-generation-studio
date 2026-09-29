@@ -11,10 +11,14 @@ import json
 from app.core.models import ModelInfo
 from app.services.settings_store import Settings, SettingsStore
 from app.ui.model_list import (
+    RECENT_LIMIT,
     combo_label,
     favourite_key,
     is_favourite,
     matches,
+    recent_models,
+    remember_model,
+    split_key,
     toggle_favourite,
     visible_models,
 )
@@ -174,3 +178,82 @@ def test_broken_favourites_in_the_file_do_not_break_the_load(tmp_path) -> None:
     settings = SettingsStore(path).load()
     assert settings.favorite_models == []
     assert settings.theme == "dark"
+
+
+# ---------- lately used models ----------
+
+
+def test_split_key_returns_provider_and_model() -> None:
+    assert split_key("aitunnel:muse-image") == ("aitunnel", "muse-image")
+
+
+def test_split_key_of_a_key_without_a_colon() -> None:
+    # A malformed key has no model part, so it never resolves to a model.
+    assert split_key("muse-image") == ("muse-image", "")
+
+
+def test_remember_model_puts_the_model_first() -> None:
+    recents = remember_model(["aitunnel:gpt-image-1"], model("muse-image"))
+    assert recents == ["aitunnel:muse-image", "aitunnel:gpt-image-1"]
+
+
+def test_remember_model_moves_a_repeated_model_back_to_the_head() -> None:
+    recents = remember_model(
+        ["aitunnel:muse-image", "aitunnel:gpt-image-1"], model("muse-image")
+    )
+    assert recents == ["aitunnel:muse-image", "aitunnel:gpt-image-1"]
+
+
+def test_remember_model_keeps_the_same_model_of_two_providers_apart() -> None:
+    recents = remember_model(["polza:muse-image"], model("muse-image", "aitunnel"))
+    assert recents == ["aitunnel:muse-image", "polza:muse-image"]
+
+
+def test_remember_model_never_grows_past_the_limit() -> None:
+    recents: list[str] = []
+    for index in range(RECENT_LIMIT + 5):
+        recents = remember_model(recents, model(f"model-{index}"))
+    assert len(recents) == RECENT_LIMIT
+    assert recents[0] == f"aitunnel:model-{RECENT_LIMIT + 4}"
+    assert "aitunnel:model-0" not in recents
+
+
+def test_recent_models_keep_the_recorded_order() -> None:
+    recents = ["aitunnel:gpt-image-1", "aitunnel:muse-image"]
+    found = recent_models(CATALOG, recents)
+    assert [(item.id, present) for item, present in found] == [
+        ("gpt-image-1", True),
+        ("muse-image", True),
+    ]
+
+
+def test_recent_models_of_the_other_provider_resolve_by_key() -> None:
+    # A model of another aggregator is not in the current catalog, but the key
+    # still names it, so the entry can be shown and picked.
+    found = recent_models(CATALOG, ["polza:topaz/image-upscale"])
+    assert [(item.id, item.provider_id, present) for item, present in found] == [
+        ("topaz/image-upscale", "polza", False)
+    ]
+
+
+def test_recent_models_ignore_a_key_without_a_model_name() -> None:
+    assert recent_models(CATALOG, [":", "aitunnel:"]) == []
+
+
+def test_recent_models_are_empty_by_default(tmp_path) -> None:
+    store = SettingsStore(tmp_path / "settings.json")
+    assert store.load().recent_models == []
+
+
+def test_recent_models_survive_a_restart(tmp_path) -> None:
+    store = SettingsStore(tmp_path / "settings.json")
+    store.save(Settings(recent_models=["aitunnel:muse-image"]))
+    assert store.load().recent_models == ["aitunnel:muse-image"]
+
+
+def test_broken_recents_in_the_file_do_not_break_the_load(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"recent_models": {"model": "muse-image"}}), encoding="utf-8"
+    )
+    assert SettingsStore(path).load().recent_models == []
