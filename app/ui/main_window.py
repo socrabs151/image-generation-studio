@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, Qt, QThreadPool
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QSize, Qt, QThreadPool
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -44,6 +44,7 @@ from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
 from app.ui.focus_rules import is_text_input
+from app.ui.icons import BUTTON_ICON_SIZE, LIST_ICON_SIZE, favourite_icon
 from app.ui.model_list import (
     combo_label,
     favourite_key,
@@ -164,6 +165,10 @@ class MainWindow(QMainWindow):
         container.setLayout(root)
         self.setCentralWidget(container)
 
+        # The star icon needs the model combo, so the button gets its first
+        # icon only after the whole bar exists.
+        self._update_fav_button()
+
         self.workspace.loadRequested.connect(self._load_reference)
         self.workspace.pasteRequested.connect(self._paste_reference)
         self.workspace.clearRequested.connect(self.workspace.reference.clear)
@@ -252,21 +257,25 @@ class MainWindow(QMainWindow):
         self._model_search.textChanged.connect(self._apply_model_filter)
         row.addWidget(self._model_search)
 
-        self._fav_button = QPushButton("☆")
+        self._fav_button = QPushButton()
         self._fav_button.setObjectName("favButton")
         self._fav_button.setCheckable(True)
         self._fav_button.setFixedWidth(34)
         self._fav_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._fav_button.setToolTip(
             "Mark the selected model as a favourite. Favourites go to the top of the "
-            "list and are marked with ★."
+            "list and are marked with a star."
         )
         self._fav_button.toggled.connect(self._on_favourite_toggled)
         row.addWidget(self._fav_button)
 
-        self._recent_button = QPushButton("Recent ▾")
+        # No "▾" in the text: the button has a menu, so the style already draws
+        # its own drop-down arrow and the two of them sit side by side.
+        self._recent_button = QPushButton("Recent")
         self._recent_button.setObjectName("recentButton")
         self._recent_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # No "▾" in the text: a button with a menu already gets the platform's own
+        # drop-down arrow, and two of them sit side by side.
         self._recent_button.setToolTip(
             "Models used lately, newest first. Picking one switches the aggregator "
             "and selects it."
@@ -663,11 +672,19 @@ class MainWindow(QMainWindow):
     def _rebuild_model_list(self, keep: str = "") -> None:
         """Refill the combo from the filtered list, keeping ``keep`` selected."""
         favourites = self._settings.favorite_models
+        theme = self._settings.theme
         self._visible = visible_models(self._models, self._model_search.text(), favourites)
+        star = favourite_icon(True, theme)
         self._model_combo.blockSignals(True)
         self._model_combo.clear()
         for model in self._visible:
-            self._model_combo.addItem(combo_label(model, favourites))
+            # Every row gets an icon slot, so the names stay in one column and
+            # a favourite is visible without reading the order.
+            self._model_combo.addItem(
+                star if is_favourite(model, favourites) else QIcon(),
+                combo_label(model),
+            )
+        self._model_combo.setIconSize(QSize(LIST_ICON_SIZE, LIST_ICON_SIZE))
         self._model_combo.blockSignals(False)
         if keep:
             for index, model in enumerate(self._visible):
@@ -696,7 +713,8 @@ class MainWindow(QMainWindow):
         favourite = is_favourite(model, self._settings.favorite_models)
         self._fav_button.blockSignals(True)
         self._fav_button.setChecked(favourite)
-        self._fav_button.setText("★" if favourite else "☆")
+        self._fav_button.setIcon(favourite_icon(favourite, self._settings.theme))
+        self._fav_button.setIconSize(QSize(BUTTON_ICON_SIZE, BUTTON_ICON_SIZE))
         self._fav_button.setEnabled(model is not None)
         self._fav_button.blockSignals(False)
 
@@ -742,6 +760,7 @@ class MainWindow(QMainWindow):
             action = self._recent_menu.addAction("Nothing here yet")
             action.setEnabled(False)
             return
+        star = favourite_icon(True, self._settings.theme)
         for model, in_catalog in recents:
             if not in_catalog:
                 # The aggregator dropped the model: show it, but do not offer it.
@@ -751,8 +770,10 @@ class MainWindow(QMainWindow):
                 )
                 action.setEnabled(False)
                 continue
-            mark = "★ " if is_favourite(model, self._settings.favorite_models) else ""
-            action = self._recent_menu.addAction(mark + model.display_name())
+            marked = is_favourite(model, self._settings.favorite_models)
+            action = self._recent_menu.addAction(
+                star if marked else QIcon(), model.display_name()
+            )
             action.triggered.connect(
                 lambda _checked=False, target=model: self._use_recent(target)
             )
@@ -931,6 +952,10 @@ class MainWindow(QMainWindow):
     def _apply_theme(self, theme: str) -> None:
         applied = apply_theme(QGuiApplication.instance(), theme)
         self._settings.theme = applied
+        # The star icons are coloured per theme, so they have to be reloaded.
+        self._update_fav_button()
+        selected = self._selected_model()
+        self._rebuild_model_list(selected.id if selected is not None else "")
         if self._docs_window is not None:
             self._docs_window.set_theme(applied)
         for name, action in self._theme_actions.items():

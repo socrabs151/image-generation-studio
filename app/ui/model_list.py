@@ -10,8 +10,6 @@ from collections.abc import Iterable
 
 from app.core.models import ModelInfo
 
-FAVOURITE_MARK = "★ "
-UNMARKED = "☆"
 # How many lately used models the app keeps.
 RECENT_LIMIT = 10
 
@@ -62,10 +60,13 @@ def visible_models(
     ]
 
 
-def combo_label(model: ModelInfo, favourites: Iterable[str]) -> str:
-    """How a model is written in the model combo, with the favourite mark."""
-    prefix = FAVOURITE_MARK if is_favourite(model, favourites) else ""
-    return prefix + model.display_name()
+def combo_label(model: ModelInfo) -> str:
+    """How a model is written in the model combo.
+
+    A favourite is marked with an icon, not with a character, so the label is
+    the same for every row.
+    """
+    return model.display_name()
 
 
 def toggle_favourite(favourites: Iterable[str], model: ModelInfo) -> list[str]:

@@ -7,6 +7,7 @@ that imports Qt fails at collection.
 from __future__ import annotations
 
 import json
+import pathlib
 
 from app.core.models import ModelInfo
 from app.services.settings_store import Settings, SettingsStore
@@ -149,10 +150,58 @@ def test_toggle_favourite_keeps_the_other_entries() -> None:
 # ---------- combo labels ----------
 
 
-def test_combo_label_marks_only_favourites() -> None:
-    assert combo_label(model("muse-image"), ["aitunnel:muse-image"]).startswith("★ ")
-    assert not combo_label(model("muse-image"), []).startswith("★")
-    assert not combo_label(model("muse-image"), ["polza:muse-image"]).startswith("★")
+TESTS_DIR = pathlib.Path(__file__).resolve().parent
+
+
+def test_no_source_module_uses_a_star_character() -> None:
+    # U+2605/U+2606 are not in Segoe UI. They came from a fallback font, and the
+    # look of the button depended on whichever font that was. The star is a
+    # picture now, so no module may fall back to the character.
+    import re
+
+    offenders = []
+    for path in sorted((TESTS_DIR.parent / "app").rglob("*.py")):
+        if re.search(r"[\u2605\u2606\u2b50]", path.read_text(encoding="utf-8")):
+            offenders.append(path.relative_to(TESTS_DIR.parent).as_posix())
+    assert not offenders, f"star character used in {offenders}"
+
+
+def test_combo_label_carries_no_star_character() -> None:
+    # The favourite is marked with an icon, so every row has the same text and
+    # the names stay in one column.
+    label = combo_label(model("muse-image"))
+    assert label == model("muse-image").display_name()
+    assert "\u2605" not in label
+    assert "\u2606" not in label
+
+
+# ---------- the star icons ----------
+
+
+def test_star_icon_files_exist_for_both_states_and_themes() -> None:
+    from app.config import STAR_ICON_DIR
+
+    for theme in ("dark", "light"):
+        for state in ("outline", "filled"):
+            path = STAR_ICON_DIR / f"star-{state}-{theme}.png"
+            assert path.exists(), f"{path.name} is missing"
+            assert path.stat().st_size > 0
+
+
+def test_star_icons_are_square_and_have_an_alpha_channel() -> None:
+    from PIL import Image
+
+    from app.config import STAR_ICON_DIR
+
+    for path in sorted(STAR_ICON_DIR.glob("star-*.png")):
+        with Image.open(path) as image:
+            assert image.mode == "RGBA", path.name
+            assert image.width == image.height, path.name
+            # Part of the picture is invisible: a star with a painted
+            # background would not work as a button icon.
+            low, high = image.getchannel("A").getextrema()
+            assert low < 255, path.name
+            assert high == 255, path.name
 
 
 # ---------- settings ----------

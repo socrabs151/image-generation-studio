@@ -132,11 +132,12 @@ QFrame#viewerBottomBar { background-color: #20202f; border-top: 1px solid #2f2f4
 QLabel#viewerCounter { color: #e6e6f0; font-weight: 600; padding: 0 6px; }
 QLabel#viewerZoom { color: #9a9ab0; }
 
-/* Список моделей: поиск и избранное */
+/* Список моделей: поиск и избранное. Значок избранного — картинка, поэтому
+   цвет задаётся в resources/icons/star, а здесь только рамка состояния. */
 QLineEdit#modelSearch { padding: 3px 8px; }
-QPushButton#favButton { font-size: 13pt; color: #9a9ab0; padding: 2px 0; }
-QPushButton#favButton:checked { color: #f5c451; border-color: #f5c451; }
-QPushButton#favButton:disabled { color: #4a4a60; border-color: #2f2f45; }
+QPushButton#favButton { padding: 2px 0; }
+QPushButton#favButton:checked { border-color: #f5c451; }
+QPushButton#favButton:disabled { border-color: #2f2f45; }
 QPushButton#filmThumb {
     background-color: #1b1b29;
     border: 1px solid #3a3a52;

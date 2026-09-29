@@ -5,6 +5,10 @@ AUDIT.md
 DEVLOG.md
 specs.md
 
+# Исходники картинок, из которых собраны иконки: 1254×1254, по 300 КБ.
+# В репозитории лежат только готовые иконки в resources/icons/star/.
+resources/icons/src/
+
 # Вендорская документация агрегаторов
 docs/aitunnel/
 docs/polzaai/
