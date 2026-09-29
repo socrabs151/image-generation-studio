@@ -18,7 +18,9 @@ Usage:
 
     python scripts/make_star_icons.py resources/icons/src/star-outline.png
 
-Requires Pillow, which is already a dependency of the test tooling.
+Needs Pillow, which is deliberately not a project dependency: the app never
+reads a PNG except through Qt, and the tests check the icons by their header.
+Install it only when rebuilding the icons: ``pip install Pillow``.
 """
 
 from __future__ import annotations

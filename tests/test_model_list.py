@@ -188,20 +188,52 @@ def test_star_icon_files_exist_for_both_states_and_themes() -> None:
             assert path.stat().st_size > 0
 
 
-def test_star_icons_are_square_and_have_an_alpha_channel() -> None:
-    from PIL import Image
+def _png_header(path: pathlib.Path) -> tuple[int, int, int]:
+    """Width, height and colour type of a PNG, read with the standard library.
 
+    Pillow is only needed to build the icons, not to run the tests, and the CI
+    runner installs the project's dependencies, not the extra ones a script
+    happens to use.
+    """
+    import struct
+
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", f"{path.name} is not a PNG"
+    # IHDR is always the first chunk: length, type, then width/height/depth/colour.
+    length, chunk = struct.unpack(">I4s", data[8:16])
+    assert chunk == b"IHDR" and length == 13, path.name
+    width, height, _depth, colour = struct.unpack(">IIBB", data[16:26])
+    return width, height, colour
+
+
+def test_star_icons_are_square_and_have_an_alpha_channel() -> None:
     from app.config import STAR_ICON_DIR
 
     for path in sorted(STAR_ICON_DIR.glob("star-*.png")):
-        with Image.open(path) as image:
-            assert image.mode == "RGBA", path.name
-            assert image.width == image.height, path.name
-            # Part of the picture is invisible: a star with a painted
-            # background would not work as a button icon.
-            low, high = image.getchannel("A").getextrema()
-            assert low < 255, path.name
-            assert high == 255, path.name
+        width, height, colour = _png_header(path)
+        assert width == height, f"{path.name} is not square: {width}x{height}"
+        # Colour type 6 is truecolour with alpha, the type a button icon needs:
+        # anything else would be a star painted on an opaque background.
+        assert colour == 6, f"{path.name} has no alpha channel, colour type {colour}"
+
+
+def test_star_icons_leave_room_around_the_star() -> None:
+    # A star drawn edge to edge looks cramped in a button, and the filled and
+    # the outline version must sit in the same place so the button does not jump
+    # when it is toggled. Both are checked through the file size: the outline is
+    # the same silhouette with the middle taken out, so it is slightly smaller.
+    from app.config import STAR_ICON_DIR
+
+    sizes = {
+        name: (STAR_ICON_DIR / f"star-{name}-{theme}.png").stat().st_size
+        for theme in ("dark", "light")
+        for name in ("outline", "filled")
+    }
+    for theme in ("dark", "light"):
+        outline = (STAR_ICON_DIR / f"star-outline-{theme}.png").stat().st_size
+        filled = (STAR_ICON_DIR / f"star-filled-{theme}.png").stat().st_size
+        assert outline != filled, f"the two states of the {theme} theme are identical"
+    assert len(set(sizes.values())) >= 2
 
 
 # ---------- settings ----------
