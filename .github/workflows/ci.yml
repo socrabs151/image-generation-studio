@@ -5,16 +5,33 @@ on:
     branches: ["**"]
   pull_request:
 
+# Минимальные права: CI ничего не пишет в репозиторий.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Проект Windows-first: os.replace, NamedTemporaryFile, русские пути и
+        # кодировка консоли проверены только на Windows.
+        os: [windows-latest, ubuntu-latest]
+        python-version: ["3.11", "3.12"]
+    # Зависший тест не должен держать job шесть часов.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - name: Установка Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Установка зависимостей
         run: |
@@ -25,4 +42,36 @@ jobs:
         run: ruff check .
 
       - name: Тесты (pytest)
+        run: pytest -q
+
+  tests-without-qt:
+    # Наш guard `test_no_test_module_imports_qt` существует из-за того, что
+    # headless-раннер не может импортировать Qt. Пока Qt стоит в зависимостях,
+    # ограничение держится на честности контрибьютора, поэтому оно проверяется
+    # отдельным прогоном без PySide6.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установка Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установка зависимостей без Qt
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests markdown-it-py Pygments pytest
+
+      - name: PySide6 не должен попасть в тесты
+        run: |
+          python -c "import PySide6" 2>/dev/null && (echo "PySide6 установлен, проверка бессмысленна" && exit 1) || echo "PySide6 отсутствует, как и нужно"
+
+      - name: Линтер (ruff)
+        run: |
+          pip install ruff
+          ruff check .
+
+      - name: Тесты без Qt (pytest)
         run: pytest -q

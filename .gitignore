@@ -17,6 +17,8 @@ docs/polzaai/
 # Данные приложения
 data/*
 !data/.gitkeep
+# Внутри data/ всё перекрыто строкой выше; эти правила оставлены для запуска
+# из каталога с настройками рядом с кодом.
 settings.json
 history.json
 *catalog*cache*.json

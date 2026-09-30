@@ -13,15 +13,17 @@
 *.webp binary
 *.gif binary
 *.ico binary
-*.xlsx binary
-*.pdf binary
 
-# Исключать локальные файлы из git archive
+# Иконки приложения не наш код: не учитывать в статистике языка
+resources/icons/ linguist-generated=true
+
+# Исключить из git archive приватные файлы, если они всё же попали в индекс
 AGENTS.md export-ignore
+AUDIT.md export-ignore
 DEVLOG.md export-ignore
 specs.md export-ignore
 references/ export-ignore
 
-# Вендорная документация: не учитывать как документацию проекта
+# Вендорская документация агрегаторов: чужая, не наш текст
 docs/aitunnel/ linguist-vendored
-docs/polza/ linguist-vendored
+docs/polzaai/ linguist-vendored
