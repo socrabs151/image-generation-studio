@@ -57,6 +57,7 @@ from app.ui.panels.log import LogPanel
 from app.ui.panels.params import ParamsPanel
 from app.ui.panels.prompt import PromptPanel
 from app.ui.panels.workspace import WorkspacePanel
+from app.ui.request_rules import WorkerSlot, save_folder_problem
 from app.ui.theme import AVAILABLE_THEMES, apply_theme
 from app.workers import FunctionWorker
 
@@ -87,6 +88,8 @@ class MainWindow(QMainWindow):
 
         self._pool = QThreadPool.globalInstance()
         self._worker: FunctionWorker | None = None
+        # One slot for the catalog, the balance and a generation: see WorkerSlot.
+        self._slot = WorkerSlot()
         self._models: list[ModelInfo] = []
         self._visible: list[ModelInfo] = []
         self._pending_restore: GenerationRequest | None = None
@@ -402,6 +405,8 @@ class MainWindow(QMainWindow):
     # ---------- actions ----------
     def refresh_catalog(self) -> None:
         """Load the model catalog (network first, cache as a fallback)."""
+        if not self._background_free("Load the catalog"):
+            return
         self.log.info("Loading model catalog…")
         provider_id = self._settings.default_provider
         self._run(
@@ -410,10 +415,13 @@ class MainWindow(QMainWindow):
             api_key=self._keystore.get(provider_id),
             on_done=self._on_catalog_loaded,
             on_fail=self._on_catalog_failed,
+            unlock_prompt=False,
         )
 
     def check_balance(self) -> None:
         """Query the provider for the current balance."""
+        if not self._background_free("Check the balance"):
+            return
         provider_id = self._settings.default_provider
         api_key = self._keystore.get(provider_id)
         if not api_key:
@@ -424,11 +432,14 @@ class MainWindow(QMainWindow):
             create_provider(provider_id, api_key).check_account,
             on_done=self._on_account,
             on_fail=lambda message: self.log.error(f"Balance check failed: {message}"),
+            unlock_prompt=False,
         )
 
     def generate(self) -> None:
         """Validate and run a generation request in the background."""
-        if self._worker is not None:
+        if not self._slot.may_start():
+            return
+        if not self._can_save_to(self._settings.save_dir):
             return
         model = self._selected_model()
         if model is None:
@@ -486,6 +497,7 @@ class MainWindow(QMainWindow):
             self._settings.generation_timeout,
             on_done=self._on_generated,
             on_fail=self._on_generation_failed,
+            is_generation=True,
         )
 
     def _cancel_generation(self) -> None:
@@ -674,19 +686,66 @@ class MainWindow(QMainWindow):
         )
 
     # ---------- worker plumbing ----------
-    def _run(self, function, *args, on_done, on_fail, **kwargs) -> None:
+    def _can_save_to(self, folder: str) -> bool:
+        """Check that the save folder works, before the request is paid for.
+
+        The folder used to be touched only after the aggregator answered, so a
+        wrong path or a full disk was discovered when the money was already
+        gone. A write probe is cheap and the only honest check for a full disk.
+        """
+        problem = save_folder_problem(folder)
+        if problem is None:
+            return True
+        self.log.error(f"Cannot save the results: {problem}")
+        QMessageBox.warning(
+            self,
+            "Save folder unavailable",
+            f"{problem}\n\nChange the save folder in Settings before generating.",
+        )
+        return False
+
+    def _background_free(self, what: str) -> bool:
+        """Whether a short background task may start right now.
+
+        All three kinds of work share one worker slot, so starting a balance
+        check during a generation replaced the reference to it. When the short
+        task finished first, it cleared the slot and the Generate button came
+        back while the generation was still running: a second press started a
+        second paid request. Refusing to start is the honest answer, because
+        nothing in the interface suggests the two compete for one slot.
+        """
+        if not self._slot.may_start():
+            self.log.warning(
+                f"Cannot {what.lower()}: a background task is still running. "
+                "Wait for it to finish."
+            )
+            return False
+        return True
+
+    def _run(
+        self, function, *args, on_done, on_fail, is_generation: bool = False, **kwargs
+    ) -> None:
+        """Start one background task, taking the shared worker slot."""
         worker = FunctionWorker(function, *args, **kwargs)
         worker.setAutoDelete(False)
         worker.signals.finished.connect(on_done)
         worker.signals.failed.connect(on_fail)
         worker.signals.finished.connect(self._clear_worker)
         worker.signals.failed.connect(self._clear_worker)
+        self._slot.start(is_generation)
         self._worker = worker
         self._pool.start(worker)
 
     def _clear_worker(self, *_args) -> None:
+        """Release the worker slot after a task.
+
+        Only a finished or failed generation re-enables Generate. A helper
+        finishing must never do it: the user could press Generate again and
+        start a second paid request.
+        """
         self._worker = None
-        self.prompt.set_busy(False)
+        if self._slot.finish():
+            self.prompt.set_busy(False)
 
     # ---------- worker callbacks ----------
     def _on_catalog_loaded(self, result: CatalogResult) -> None:
