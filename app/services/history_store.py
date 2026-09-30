@@ -8,6 +8,7 @@ because the files already live in the output folder.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -72,6 +73,11 @@ class HistoryStore:
         self._path = path or HISTORY_FILE
         self._records: list[HistoryRecord] = []
         self._loaded = False
+        # The generation runs in a worker thread and the history window works in
+        # the GUI thread, so both can add a record at the same time. Each of them
+        # rewrites the whole file, and two os.replace calls to one target collide
+        # on Windows with "Access is denied", which loses the record.
+        self._lock = threading.RLock()
 
     def load(self) -> list[HistoryRecord]:
         """Load history from disk (empty list when the file is absent).
@@ -102,40 +108,56 @@ class HistoryStore:
         while a worker thread may prepend a new record.
         """
         if not self._loaded:
-            self.load()
-        return list(self._records)
+            with self._lock:
+                self._load_locked()
+        with self._lock:
+            return list(self._records)
 
     def add(self, record: HistoryRecord, limit: int = 200) -> HistoryRecord:
         """Prepend a record, trim to ``limit``, persist and return it."""
-        self.records()
-        if not record.id:
-            record.id = uuid.uuid4().hex[:12]
-        if not record.timestamp:
-            record.timestamp = now_iso()
-        self._records.insert(0, record)
-        if limit > 0:
-            del self._records[limit:]
-        self.save()
+        # The whole read-modify-write is under one lock: two workers finishing
+        # at the same time would otherwise both read the same old list, and the
+        # second write would drop the first record.
+        with self._lock:
+            self._load_locked()
+            if not record.id:
+                record.id = uuid.uuid4().hex[:12]
+            if not record.timestamp:
+                record.timestamp = now_iso()
+            self._records.insert(0, record)
+            if limit > 0:
+                del self._records[limit:]
+            self._save_locked()
         return record
 
     def delete(self, record_id: str, limit: int = 200) -> bool:
         """Remove one record by id; report whether something was removed."""
-        records = self.records()
-        remaining = [record for record in records if record.id != record_id]
-        if len(remaining) == len(records):
-            return False
-        self._records = remaining
-        self.save()
+        with self._lock:
+            self._load_locked()
+            remaining = [record for record in self._records if record.id != record_id]
+            if len(remaining) == len(self._records):
+                return False
+            self._records = remaining
+            self._save_locked()
         return True
 
     def clear(self) -> None:
         """Remove all records and persist."""
-        self._records = []
-        self._loaded = True
-        self.save()
+        with self._lock:
+            self._records = []
+            self._loaded = True
+            self._save_locked()
 
     def save(self) -> None:
         """Write history atomically."""
+        with self._lock:
+            self._save_locked()
+
+    def _load_locked(self) -> None:
+        if not self._loaded:
+            self.load()
+
+    def _save_locked(self) -> None:
         write_json_atomic(
             self._path,
             {
