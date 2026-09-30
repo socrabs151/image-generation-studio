@@ -171,7 +171,7 @@ class AitunnelProvider(Provider):
                 LOGGER.warning("One of %d images is unusable: %s", request.n, exc)
                 broken.append("an unreadable image")
         if not images:
-            raise ConfigError("The provider returned no usable images.")
+            raise ConfigError("The aggregator returned no usable images.")
         if broken:
             LOGGER.warning(
                 "Kept %d of %d images; %s could not be read.",
@@ -255,4 +255,4 @@ class AitunnelProvider(Provider):
     # ---------- internals ----------
     def _require_key(self) -> None:
         if self.requires_key and not self.api_key:
-            raise ConfigError("API key is not set for this provider.")
+            raise ConfigError("API key is not set for this aggregator.")

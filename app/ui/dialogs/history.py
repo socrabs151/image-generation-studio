@@ -75,7 +75,7 @@ class HistoryWindow(QMainWindow):
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Time", "Provider", "Model", "Prompt", "Images", "Cost, RUB", "Status"]
+            ["Time", "Aggregator", "Model", "Prompt", "Images", "Cost, RUB", "Status"]
         )
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -168,7 +168,7 @@ class HistoryWindow(QMainWindow):
         filters = QHBoxLayout()
         filters.setSpacing(6)
         filters.addWidget(self.search, stretch=1)
-        self._add_facet(filters, "Provider", self.provider_filter, 140)
+        self._add_facet(filters, "Aggregator", self.provider_filter, 140)
         self._add_facet(filters, "Model", self.model_filter, 300)
         self._add_facet(filters, "Status", self.status_filter, 110)
         layout.addLayout(filters)

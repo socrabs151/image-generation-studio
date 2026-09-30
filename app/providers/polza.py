@@ -220,7 +220,7 @@ class PolzaProvider(Provider):
                 raise CancelledError()
             if stopped_early is not None:
                 raise ProviderError(f"Polza.ai returned nothing: {stopped_early}")
-            raise ConfigError("The provider returned no images.")
+            raise ConfigError("The aggregator returned no images.")
         if stopped_early is not None:
             LOGGER.warning(
                 "Kept %d of %d images from %s; the batch was %s.",
@@ -338,7 +338,7 @@ class PolzaProvider(Provider):
             if url:
                 images.append(self._download(str(url)))
         if not images:
-            raise ConfigError("The provider returned no images.")
+            raise ConfigError("The aggregator returned no images.")
         usage = payload.get("usage") or {}
         return GenerationResult(
             images=images,
@@ -375,7 +375,7 @@ class PolzaProvider(Provider):
     # ---------- internals ----------
     def _require_key(self) -> None:
         if self.requires_key and not self.api_key:
-            raise ConfigError("API key is not set for this provider.")
+            raise ConfigError("API key is not set for this aggregator.")
 
 
 def _parameters_of(entry: dict) -> tuple[bool, dict]:
@@ -461,4 +461,4 @@ def _media_error_message(payload: dict) -> str:
                 return str(error[key])
     if error:
         return str(error)
-    return "The provider reported a failed generation."
+    return "The aggregator reported a failed generation."

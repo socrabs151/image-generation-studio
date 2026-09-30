@@ -59,12 +59,12 @@ def decode_base64(encoded: str) -> bytes:
     if payload.startswith("data:"):
         _, separator, payload = payload.partition(",")
         if not separator:
-            raise ProviderError("The provider returned a malformed data URI.")
+            raise ProviderError("The aggregator returned a malformed data URI.")
     payload = "".join(payload.split())
     try:
         return base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ProviderError(f"The provider returned an undecodable image: {exc}") from exc
+        raise ProviderError(f"The aggregator returned an undecodable image: {exc}") from exc
 
 
 def as_float(value) -> float | None:

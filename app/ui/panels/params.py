@@ -90,7 +90,7 @@ class ParamsPanel(QFrame):
         form.addRow("Background", self.background)
         layout.addLayout(form)
 
-        self._passthrough_title = QLabel("Provider-specific parameters")
+        self._passthrough_title = QLabel("Aggregator-specific parameters")
         self._passthrough_title.setObjectName("panelTitle")
         self._passthrough_title.setVisible(False)
         layout.addWidget(self._passthrough_title)

@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
-        row.addWidget(QLabel("Provider:"))
+        row.addWidget(QLabel("Aggregator:"))
         self._provider_combo = QComboBox()
         for provider_id, name in provider_choices():
             self._provider_combo.addItem(name, provider_id)
@@ -251,12 +251,12 @@ class MainWindow(QMainWindow):
         if not provider_id or provider_id == self._settings.default_provider:
             return
         if self._worker is not None:
-            self.log.warning("Wait for the current task before switching the provider.")
+            self.log.warning("Wait for the current task before switching the aggregator.")
             self._select_provider(self._settings.default_provider)
             return
         self._settings.default_provider = str(provider_id)
         self._settings_store.save(self._settings)
-        self.log.info(f"Provider switched to {display_name(str(provider_id))}.")
+        self.log.info(f"Aggregator switched to {display_name(str(provider_id))}.")
 
         self._models = []
         self._visible = []
@@ -280,7 +280,7 @@ class MainWindow(QMainWindow):
 
         self._model_search = QLineEdit()
         self._model_search.setObjectName("modelSearch")
-        self._model_search.setPlaceholderText("Search: name, description, provider")
+        self._model_search.setPlaceholderText("Search: name, description, aggregator")
         self._model_search.setClearButtonEnabled(True)
         self._model_search.setToolTip(
             "Type to narrow the list below. Matches the model id, its description "
@@ -634,7 +634,7 @@ class MainWindow(QMainWindow):
         if request.provider_id != self._settings.default_provider:
             index = self._provider_combo.findData(request.provider_id)
             if index < 0:
-                self.log.warning(f"Unknown provider in the entry: {request.provider_id}")
+                self.log.warning(f"Unknown aggregator in the entry: {request.provider_id}")
                 self._pending_restore = None
                 return
             # Switching the provider reloads its catalog; the model can only be
@@ -843,7 +843,7 @@ class MainWindow(QMainWindow):
             index = self._provider_combo.findData(model.provider_id)
             if index < 0:
                 self.log.warning(
-                    f"Unknown provider in the lately used list: {model.provider_id}"
+                    f"Unknown aggregator in the lately used list: {model.provider_id}"
                 )
                 return
             # Switching reloads the catalog, so the model is picked afterwards.

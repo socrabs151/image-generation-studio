@@ -69,7 +69,7 @@ class SettingsDialog(QDialog):
         self.auto_refresh.setChecked(self._settings.auto_refresh_catalog)
 
         form = QFormLayout()
-        form.addRow("Default provider:", self.provider)
+        form.addRow("Default aggregator:", self.provider)
         form.addRow("Default model:", self.model)
         form.addRow("", self.auto_refresh)
         return self._wrap(form)
@@ -89,10 +89,10 @@ class SettingsDialog(QDialog):
         form.addRow("Request timeout (s):", self.generation_timeout)
 
         hint = QLabel(
-            "The estimate comes from the provider's catalog and equals its max price × n. "
+            "The estimate comes from the aggregator's catalog and equals its max price × n. "
             "The catalog calls those prices approximate: the real cost depends on the "
             "resolution and the amount of generated data, so it can be higher than the "
-            "estimate. The exact amount is reported by the provider afterwards."
+            "estimate. The exact amount is reported by the aggregator afterwards."
         )
         hint.setObjectName("hint")
         hint.setWordWrap(True)
