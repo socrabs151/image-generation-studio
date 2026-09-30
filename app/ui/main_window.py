@@ -203,12 +203,39 @@ class MainWindow(QMainWindow):
 
         row.addWidget(QLabel("Balance:"))
         self._balance_label = QLabel("—")
+        self._balance_label.setToolTip(
+            "The last known balance. It is not refreshed on its own: press Check "
+            "balance, and note that after a paid generation it stays as it was."
+        )
         row.addWidget(self._balance_label)
-        row.addWidget(self._link_button("Check balance", self.check_balance))
+        row.addWidget(
+            self._link_button(
+                "Check balance", self.check_balance, "Ask the aggregator for the balance"
+            )
+        )
         row.addStretch(1)
-        row.addWidget(self._link_button("Refresh catalog", self.refresh_catalog))
-        row.addWidget(QPushButton("Settings", clicked=self.open_settings))
-        row.addWidget(QPushButton("History", clicked=self.open_history))
+        row.addWidget(
+            self._link_button(
+                "Refresh catalog",
+                self.refresh_catalog,
+                "Download the model list again. The list is cached on disk, so this is "
+                "only needed after the aggregator adds or removes a model.",
+            )
+        )
+        row.addWidget(
+            QPushButton(
+                "Settings",
+                clicked=self.open_settings,
+                toolTip="API keys, the default model, the save folder and the limits",
+            )
+        )
+        row.addWidget(
+            QPushButton(
+                "History",
+                clicked=self.open_history,
+                toolTip="Past generations with their cost, parameters and results",
+            )
+        )
         return bar
 
     def _select_provider(self, provider_id: str) -> None:
@@ -275,13 +302,11 @@ class MainWindow(QMainWindow):
         self._fav_button.toggled.connect(self._on_favourite_toggled)
         row.addWidget(self._fav_button)
 
-        # No "▾" in the text: the button has a menu, so the style already draws
-        # its own drop-down arrow and the two of them sit side by side.
+        # No "▾" in the text: a button with a menu already gets the platform's own
+        # drop-down arrow, and two of them sit side by side.
         self._recent_button = QPushButton("Recent")
         self._recent_button.setObjectName("recentButton")
         self._recent_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        # No "▾" in the text: a button with a menu already gets the platform's own
-        # drop-down arrow, and two of them sit side by side.
         self._recent_button.setToolTip(
             "Models used lately, newest first. Picking one switches the aggregator "
             "and selects it."
@@ -293,6 +318,10 @@ class MainWindow(QMainWindow):
 
         self._model_combo = QComboBox()
         self._model_combo.setMinimumWidth(420)
+        self._model_combo.setToolTip(
+            "The model that will generate the image. Favourites are marked with a "
+            "star and sit at the top; the parameters below follow the selected model."
+        )
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         row.addWidget(self._model_combo, stretch=1)
 
@@ -312,10 +341,11 @@ class MainWindow(QMainWindow):
         return bar
 
     @staticmethod
-    def _link_button(text: str, slot) -> QPushButton:
+    def _link_button(text: str, slot, tool_tip: str = "") -> QPushButton:
         button = QPushButton(text)
         button.setObjectName("link")
         button.setFlat(True)
+        button.setToolTip(tool_tip)
         button.clicked.connect(slot)
         return button
 

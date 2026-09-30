@@ -35,13 +35,23 @@ class PromptPanel(QFrame):
 
         actions = QHBoxLayout()
         clear = QPushButton("Clear")
+        clear.setToolTip("Empty the prompt field")
         clear.clicked.connect(self.clearRequested.emit)
         self.generate = QPushButton("Generate")
         self.generate.setObjectName("primary")
+        self.generate.setToolTip(
+            "Send the request to the aggregator. The estimate on the right is the "
+            "catalog maximum for the number of images, not the real cost."
+        )
         self.generate.clicked.connect(self.generateRequested.emit)
         self.stop = QPushButton("Stop")
         self.stop.setObjectName("danger")
         self.stop.setEnabled(False)
+        self.stop.setToolTip(
+            "Stop waiting for the result. This does not cancel the request at the "
+            "aggregator: the work keeps running and stays paid for. The images that "
+            "already arrived are still saved."
+        )
         self.stop.clicked.connect(self.stopRequested.emit)
         actions.addWidget(clear)
         actions.addWidget(self.generate)
@@ -50,6 +60,11 @@ class PromptPanel(QFrame):
 
         self.cost_hint = QLabel("")
         self.cost_hint.setObjectName("hint")
+        self.cost_hint.setToolTip(
+            "Catalog prices for one image, and the estimate for the whole request "
+            "(the catalog maximum times the number of images). The aggregator "
+            "reports the real cost afterwards, and it can be higher."
+        )
         actions.addWidget(self.cost_hint)
         layout.addLayout(actions)
 

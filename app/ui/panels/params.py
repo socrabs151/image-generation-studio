@@ -56,13 +56,29 @@ class ParamsPanel(QFrame):
         form.setSpacing(4)
 
         self.n_field = NumberField(1, 10, 1)
+        self.n_field.setToolTip(
+            "How many images to generate. Each one is a separate paid task at "
+            "Polza.ai, and the total cost is multiplied accordingly."
+        )
         self.quality = self._combo()
+        self.quality.setToolTip("Quality level, when the model offers several")
         self.resolution = self._combo()
+        self.resolution.setToolTip(
+            "Output resolution. It is one of the things that decides the price."
+        )
         self.aspect_ratio = self._combo()
+        self.aspect_ratio.setToolTip("Proportions of the generated image")
         self.format = self._combo()
+        self.format.setToolTip("File format of the result, when the model offers a choice")
         self.seed = QLineEdit()
         self.seed.setPlaceholderText("random")
+        self.seed.setToolTip(
+            "A number that makes the result repeatable. Leave it empty for a random "
+            "one: a fixed seed with several images at Polza.ai would return the same "
+            "picture every time."
+        )
         self.background = self._combo()
+        self.background.setToolTip("Background of the generated image")
         self._passthrough_fields: dict[str, QLineEdit] = {}
 
         form.addRow("Count", self.n_field)
