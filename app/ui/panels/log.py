@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
@@ -11,6 +14,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+
+from app.logging_setup import add_handler
 
 _LEVEL_PREFIX = {
     "info": "",
@@ -67,3 +72,38 @@ class LogPanel(QFrame):
         prefix = _LEVEL_PREFIX.get(level, "")
         self.view.appendPlainText(f"{prefix}{message}")
         self.view.moveCursor(QTextCursor.MoveOperation.End)
+
+    def append(self, level: str, message: str) -> None:
+        """Add a line with an explicit level."""
+        self._append(level, message)
+
+    def install_logging_bridge(self) -> None:
+        """Show what the services log in this panel.
+
+        Without it every ``logging`` warning, including the ones about money and
+        broken files, lands in ``data/app.log`` only, where a user who started
+        the app from a shortcut never looks.
+        """
+        add_handler(_PanelLogHandler(self))
+
+
+class _PanelLogHandler(logging.Handler):
+    """Forwards log records to the panel, always in the GUI thread.
+
+    A handler can be called from a worker thread and a widget may not be, so
+    the line is handed to the event loop instead of appended right away.
+    """
+
+    def __init__(self, panel: LogPanel) -> None:
+        super().__init__(level=logging.INFO)
+        self._panel = panel
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno >= logging.ERROR:
+            level = "error"
+        elif record.levelno >= logging.WARNING:
+            level = "warning"
+        else:
+            level = "info"
+        message = record.getMessage()
+        QTimer.singleShot(0, lambda: self._panel.append(level, message))

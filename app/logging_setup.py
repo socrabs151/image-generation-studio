@@ -7,6 +7,7 @@ Configures a root logger with a rotating file handler. Secrets (API keys and the
 from __future__ import annotations
 
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 
 from app.config import DATA_DIR
@@ -29,11 +30,22 @@ def get_logger() -> logging.Logger:
 def _configure(logger: logging.Logger) -> None:
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    handler = RotatingFileHandler(
-        LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
-    )
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        logger.addHandler(handler)
+    except OSError as exc:
+        # An unwritable data folder must not stop the app from starting: the
+        # interface keeps working and the messages still reach the log panel.
+        print(f"The log file could not be opened: {exc}", file=sys.stderr)
+
+
+def add_handler(handler: logging.Handler) -> None:
+    """Attach an extra handler, for example one that shows messages in the UI."""
+    logger = get_logger()
     logger.addHandler(handler)
