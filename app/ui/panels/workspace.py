@@ -8,6 +8,7 @@ Clicking a thumbnail opens the whole set in a viewer.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
@@ -42,6 +43,8 @@ class ReferencePanel(QWidget):
     """Drop target and thumbnail strip holding every loaded reference image."""
 
     referenceActivated = Signal(int)
+    fileRejected = Signal(str)
+    dropped = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -200,7 +203,10 @@ class ReferencePanel(QWidget):
             for url in mime.urls():
                 path = url.toLocalFile()
                 if path:
-                    self.add_from_file(path)
+                    if not self.add_from_file(path):
+                        # A folder, a text file or a corrupt image used to be
+                        # dropped without a word.
+                        self.fileRejected.emit(Path(path).name)
         elif mime.hasImage():
             # An image dragged from another application arrives as a QImage, not as
             # encoded PNG/JPEG bytes, so it has to be encoded before decoding it.
@@ -210,6 +216,7 @@ class ReferencePanel(QWidget):
                 buffer.open(QIODevice.OpenModeFlag.WriteOnly)
                 if image.save(buffer, "PNG"):
                     self.add_from_bytes(bytes(buffer.data()))
+        self.dropped.emit()
         event.acceptProposedAction()
 
 

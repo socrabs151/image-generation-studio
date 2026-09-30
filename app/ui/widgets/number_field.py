@@ -71,9 +71,17 @@ class NumberField(QFrame):
         except ValueError:
             return self._min
 
-    def setValue(self, value: int) -> None:
-        """Set the value, clamped to the allowed range."""
-        self.edit.setText(str(self._clamp(value)))
+    def setValue(self, value: int) -> None:  # noqa: N802 - Qt API
+        """Set the value, clamped to the allowed range.
+
+        Emits :attr:`valueChanged` like the Qt widgets do, so that a change made
+        in code is seen by the rest of the app just like a typed one.
+        """
+        new_value = self._clamp(value)
+        if new_value == self.value() and self.edit.text() == str(new_value):
+            return
+        self.edit.setText(str(new_value))
+        self.valueChanged.emit(new_value)
 
     def setMaximum(self, maximum: int) -> None:  # noqa: N802 - Qt API
         """Lower the upper bound, for example to the limit of the selected model."""

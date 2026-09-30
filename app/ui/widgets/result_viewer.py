@@ -7,7 +7,7 @@ full size with zoom and navigation.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,6 +53,10 @@ class ZoomableView(QWidget):
         self._canvas = QLabel("No image")
         self._canvas.setObjectName("canvas")
         self._canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # The canvas is the deepest widget under the pointer, and QLabel accepts
+        # a wheel event it does not use, which stops it from ever reaching the
+        # zoom handler above. Forwarding it here is what makes the wheel work.
+        self._canvas.installEventFilter(self)
 
         self._scroll = QScrollArea()
         self._scroll.setObjectName("resultScroll")
@@ -120,7 +124,12 @@ class ZoomableView(QWidget):
         return screen.devicePixelRatio() if screen is not None else 1.0
 
     def _fit_scale(self) -> float:
-        """The scale that makes the image fit the visible area."""
+        """The scale that makes the image fit the visible area.
+
+        Capped at ``MAX_SCALE``: a tiny image stretched to a large window would
+        otherwise report a zoom of thousands of percent and scale a
+        window-sized buffer for a handful of pixels.
+        """
         pixmap = self.current_pixmap()
         if pixmap is None:
             return 1.0
@@ -128,8 +137,11 @@ class ZoomableView(QWidget):
         if pixmap.isNull() or viewport.width() <= 0 or viewport.height() <= 0:
             return 1.0
         return min(
-            viewport.width() / pixmap.width(),
-            viewport.height() / pixmap.height(),
+            self.MAX_SCALE,
+            min(
+                viewport.width() / pixmap.width(),
+                viewport.height() / pixmap.height(),
+            ),
         )
 
     def effective_scale(self) -> float:
@@ -269,8 +281,17 @@ class ZoomableView(QWidget):
         if steps == 0:
             return
         factor = self.STEP**steps
-        self._zoom_by(factor, self._canvas.mapFrom(event.position().toPoint()))
+        # The pointer position arrives in this widget's coordinates and has to
+        # be mapped onto the canvas, which is a child on a scroll area.
+        anchor = self._canvas.mapFrom(self, event.position().toPoint())
+        self._zoom_by(factor, anchor)
         event.accept()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if watched is self._canvas and event.type() == QEvent.Type.Wheel:
+            self.wheelEvent(event)
+            return True
+        return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
         if event.button() == Qt.MouseButton.LeftButton:

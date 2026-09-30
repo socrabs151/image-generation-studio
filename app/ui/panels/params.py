@@ -6,6 +6,7 @@ not support are hidden or disabled, so the user cannot send invalid parameters.
 
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -35,6 +36,9 @@ _FIELD_LABELS = {
 
 class ParamsPanel(QFrame):
     """Panel with generation parameters."""
+
+    #: Emitted whenever a value changes, so the window can refresh the estimate.
+    changed = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -84,6 +88,12 @@ class ParamsPanel(QFrame):
         self.hint.setObjectName("hint")
         self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
+
+        self.n_field.valueChanged.connect(lambda _value: self.changed.emit())
+        for field in (self.quality, self.resolution, self.aspect_ratio, self.format):
+            field.currentTextChanged.connect(lambda _text: self.changed.emit())
+        self.background.currentTextChanged.connect(lambda _text: self.changed.emit())
+        self.seed.textChanged.connect(lambda _text: self.changed.emit())
 
         self.set_model(None)
 

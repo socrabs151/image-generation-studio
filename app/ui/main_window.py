@@ -151,6 +151,7 @@ class MainWindow(QMainWindow):
         self.prompt = PromptPanel()
         self.log = LogPanel()
         self.log.install_logging_bridge()
+        self.params.changed.connect(self._update_cost_hint)
         root.addWidget(self.prompt)
         root.addWidget(self.log)
 
@@ -174,6 +175,10 @@ class MainWindow(QMainWindow):
         self.workspace.pasteRequested.connect(self._paste_reference)
         self.workspace.clearRequested.connect(self.workspace.reference.clear)
         self.workspace.reference.referenceActivated.connect(self._open_reference_viewer)
+        self.workspace.reference.fileRejected.connect(
+            lambda name: self.log.error(f"Cannot read the image: {name}")
+        )
+        self.workspace.reference.dropped.connect(self._warn_if_too_many_references)
         self.workspace.result_viewer.imageActivated.connect(self._open_result_viewer)
         self.prompt.generateRequested.connect(self.generate)
         self.prompt.stopRequested.connect(self._cancel_generation)
@@ -499,6 +504,14 @@ class MainWindow(QMainWindow):
             return
 
         mime = clipboard.mimeData()
+        if mime is None:
+            # An empty or locked clipboard reports nothing at all, which is a
+            # normal state and not a reason to raise.
+            self.log.warning(
+                "The clipboard is empty or held by another program. Copy an image "
+                "or an image file first."
+            )
+            return
         paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
         paths = [path for path in paths if path]
         if not paths:
@@ -821,6 +834,13 @@ class MainWindow(QMainWindow):
 
     def _on_catalog_failed(self, message: str) -> None:
         self.log.error(f"Catalog load failed: {message}")
+        # An empty combo in the middle of the top bar explains nothing on its
+        # own, and the log panel is easy to miss.
+        self._status_model.setText("Model: — (catalog failed)")
+        self._model_combo.setToolTip(
+            f"The catalog could not be loaded: {message}\n"
+            "Check the API key in Settings and press Refresh catalog."
+        )
 
     def _on_account(self, account: AccountInfo) -> None:
         balance = f"{format_money(account.balance)} ₽"
@@ -880,6 +900,20 @@ class MainWindow(QMainWindow):
             self.prompt.set_cost_hint("")
             return
         self._status_model.setText(f"Model: {model.id}")
+        self._update_cost_hint()
+
+    def _update_cost_hint(self) -> None:
+        """Show what the current settings would cost.
+
+        Called on a model change and on every parameter change, because the
+        estimate is ``max price × n``: leaving it showing the figure for n = 1
+        after the user asked for six is a wrong number on the screen at the
+        moment the decision to pay is made.
+        """
+        model = self._selected_model()
+        if model is None:
+            self.prompt.set_cost_hint("")
+            return
         reserved = reserved_amount(model.max_price, self.params.selected_n())
         self.prompt.set_cost_hint(
             f"Catalog: {format_price(model.min_price, model.max_price)} ₽ · "
