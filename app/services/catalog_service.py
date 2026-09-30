@@ -7,15 +7,17 @@ fetch fails, the service falls back to the cache and reports that it did so.
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import CATALOG_CACHE_FILE
+from app.core.errors import ConfigError
 from app.core.models import ModelInfo
+from app.logging_setup import get_logger
 from app.providers import create_provider
+from app.services.json_file import read_json, write_json_atomic
+
+LOGGER = get_logger()
 
 
 @dataclass(slots=True)
@@ -54,32 +56,38 @@ class CatalogService:
         if not self._cache_path.exists():
             return {}
         try:
-            data = json.loads(self._cache_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            data = read_json(self._cache_path, "catalog cache")
+        except ConfigError as exc:
+            # A broken cache is not worth an error dialog: the network fetch has
+            # already failed, and there is nothing to fall back to.
+            LOGGER.warning("Catalog cache ignored: %s", exc)
             return {}
         return data if isinstance(data, dict) else {}
 
     def _read_cache(self, provider_id: str) -> list[ModelInfo]:
         raw = self._read_all().get(provider_id)
-        if not raw:
+        if not isinstance(raw, list):
             return []
-        return [self._model_from_dict(item) for item in raw]
+        models: list[ModelInfo] = []
+        for item in raw:
+            if not isinstance(item, dict) or "id" not in item:
+                continue
+            try:
+                models.append(self._model_from_dict(item))
+            except (TypeError, ValueError) as exc:
+                LOGGER.warning("Skipping a broken cache entry: %s", exc)
+        return models
 
     def _write_cache(self, provider_id: str, models: list[ModelInfo]) -> None:
         store = self._read_all()
         store[provider_id] = [self._model_to_dict(model) for model in models]
-        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(store, ensure_ascii=False, indent=2)
-        handle = tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=self._cache_path.parent, delete=False, suffix=".tmp"
-        )
         try:
-            with handle:
-                handle.write(text)
-            os.replace(handle.name, self._cache_path)
-        except OSError:
-            Path(handle.name).unlink(missing_ok=True)
-            raise
+            write_json_atomic(self._cache_path, store)
+        except OSError as exc:
+            # The models are already in memory. Failing to cache them must not
+            # turn a successful load into an error, and must not claim the
+            # prices came from the cache.
+            LOGGER.warning("Could not write the catalog cache: %s", exc)
 
     @staticmethod
     def _model_to_dict(model: ModelInfo) -> dict:

@@ -8,9 +8,6 @@ because the files already live in the output folder.
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -19,6 +16,7 @@ from pathlib import Path
 from app.config import HISTORY_FILE, HISTORY_SCHEMA_VERSION
 from app.core.errors import ConfigError
 from app.core.models import GenerationRequest
+from app.services.json_file import read_json, write_json_atomic
 
 
 @dataclass(slots=True)
@@ -76,16 +74,24 @@ class HistoryStore:
         self._loaded = False
 
     def load(self) -> list[HistoryRecord]:
-        """Load history from disk (empty list when the file is absent)."""
+        """Load history from disk (empty list when the file is absent).
+
+        A file that does not parse is moved aside, so the broken bytes survive
+        and the app can start. It is a history of paid generations, so throwing
+        it away quietly is not an option.
+        """
         if not self._path.exists():
             self._records = []
             self._loaded = True
             return list(self._records)
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ConfigError(f"Cannot read history file: {exc}") from exc
-        self._records = [self._record_from_dict(item) for item in raw.get("records", [])]
+        raw = read_json(self._path, "history")
+        if not isinstance(raw, dict):
+            raise ConfigError("The history file must contain a JSON object.")
+        self._records = [
+            self._record_from_dict(item)
+            for item in raw.get("records", [])
+            if isinstance(item, dict)
+        ]
         self._loaded = True
         return list(self._records)
 
@@ -130,25 +136,19 @@ class HistoryStore:
 
     def save(self) -> None:
         """Write history atomically."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": HISTORY_SCHEMA_VERSION,
-            "records": [asdict(record) for record in self._records],
-        }
-        text = json.dumps(payload, ensure_ascii=False, indent=2)
-        handle = tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=self._path.parent, delete=False, suffix=".tmp"
+        write_json_atomic(
+            self._path,
+            {
+                "schema_version": HISTORY_SCHEMA_VERSION,
+                "records": [asdict(record) for record in self._records],
+            },
         )
-        try:
-            with handle:
-                handle.write(text)
-            os.replace(handle.name, self._path)
-        except OSError:
-            Path(handle.name).unlink(missing_ok=True)
-            raise
 
     @staticmethod
     def _record_from_dict(raw: dict) -> HistoryRecord:
+        # A history file is written by many versions of the app and edited by
+        # hand during support cases, so every field is read defensively: one
+        # odd record must not cost the user the whole history window.
         return HistoryRecord(
             # Records written before schema 2 have no id; one is invented so the
             # window can address them, and it is persisted on the next write.
@@ -157,14 +157,32 @@ class HistoryStore:
             provider_id=raw.get("provider_id", ""),
             model=raw.get("model", ""),
             prompt=raw.get("prompt", ""),
-            n=int(raw.get("n", 1)),
-            cost_rub=raw.get("cost_rub"),
-            file_paths=list(raw.get("file_paths") or []),
+            n=_as_int(raw.get("n"), 1),
+            cost_rub=_as_float(raw.get("cost_rub")),
+            file_paths=[str(item) for item in (raw.get("file_paths") or [])],
             status=raw.get("status", "ok"),
             error=raw.get("error", ""),
             request=dict(raw.get("request") or {}),
-            duration_seconds=raw.get("duration_seconds"),
+            duration_seconds=_as_float(raw.get("duration_seconds")),
         )
+
+
+def _as_int(value: object, fallback: int) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _as_float(value: object) -> float | None:
+    """A price that cannot be read stays unknown, never zero: a wrong sum in
+    the history is worse than a missing one."""
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def now_iso() -> str:
