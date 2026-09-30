@@ -5,6 +5,8 @@ Network access is not required: only pure functions are exercised.
 
 from __future__ import annotations
 
+import pytest
+
 from app.core.models import GenerationRequest
 from app.providers.aitunnel import AitunnelProvider
 
@@ -92,3 +94,86 @@ def test_no_required_parameters_without_value_lists() -> None:
     model = AitunnelProvider._parse_model("plain", {"description": "no options"})
 
     assert model.required_parameters == []
+
+
+# ---------- a paid batch must survive one bad element ----------
+
+
+def _generation_payload(*items: dict) -> dict:
+    return {
+        "data": list(items),
+        "usage": {"cost_rub": 30.0, "balance": 100.0},
+    }
+
+
+def _response(payload: dict) -> object:
+    class _Response:
+        status_code = 200
+
+        def json(self) -> dict:
+            return payload
+
+    return _Response()
+
+
+def test_one_unreadable_image_does_not_lose_the_paid_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole response is paid for as a whole. One element that cannot be
+    decoded must not throw the others away."""
+    import base64
+
+    provider = AitunnelProvider("key")
+    good = {"b64_json": base64.b64encode(b"\x89PNG\r\n\x1a\nrest").decode("ascii")}
+    payload = _generation_payload(good, {"b64_json": "@@not base64@@"}, dict(good))
+    monkeypatch.setattr(
+        "app.providers.aitunnel.requests.post", lambda *a, **k: _response(payload)
+    )
+    monkeypatch.setattr("app.providers.aitunnel.ensure_ok", lambda *a, **k: None)
+    monkeypatch.setattr("app.providers.aitunnel.parse_json", lambda *a, **k: payload)
+
+    result = provider.generate(
+        GenerationRequest(provider_id="aitunnel", model="m", prompt="cat", n=3)
+    )
+
+    assert len(result.images) == 2
+    assert result.cost_rub == 30.0
+
+
+def test_an_image_without_data_is_reported_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    provider = AitunnelProvider("key")
+    good = {"b64_json": base64.b64encode(b"\x89PNG\r\n\x1a\nrest").decode("ascii")}
+    payload = _generation_payload(good, {"url": "https://example.com/image.png"})
+    monkeypatch.setattr(
+        "app.providers.aitunnel.requests.post", lambda *a, **k: _response(payload)
+    )
+    monkeypatch.setattr("app.providers.aitunnel.ensure_ok", lambda *a, **k: None)
+    monkeypatch.setattr("app.providers.aitunnel.parse_json", lambda *a, **k: payload)
+
+    result = provider.generate(
+        GenerationRequest(provider_id="aitunnel", model="m", prompt="cat", n=2)
+    )
+
+    assert len(result.images) == 1
+    assert result.cost_rub == 30.0
+
+
+def test_a_response_with_nothing_usable_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.errors import ConfigError
+
+    provider = AitunnelProvider("key")
+    payload = _generation_payload({"b64_json": "@@not base64@@"})
+    monkeypatch.setattr("app.providers.aitunnel.requests.post", lambda *a, **k: _response(payload))
+    monkeypatch.setattr("app.providers.aitunnel.ensure_ok", lambda *a, **k: None)
+    monkeypatch.setattr("app.providers.aitunnel.parse_json", lambda *a, **k: payload)
+
+    with pytest.raises(ConfigError):
+        provider.generate(
+            GenerationRequest(provider_id="aitunnel", model="m", prompt="cat", n=1)
+        )

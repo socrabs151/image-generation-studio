@@ -16,7 +16,7 @@ from collections.abc import Callable
 
 import requests
 
-from app.core.errors import CancelledError, ConfigError
+from app.core.errors import AppError, CancelledError, ConfigError
 from app.core.models import (
     AccountInfo,
     GeneratedImage,
@@ -152,18 +152,33 @@ class AitunnelProvider(Provider):
         payload = parse_json(response)
 
         images: list[GeneratedImage] = []
+        broken: list[str] = []
         for item in payload.get("data") or []:
             encoded = item.get("b64_json")
             if not encoded:
+                # Some of the images may have arrived as a link. Losing the rest
+                # of a paid batch over one unexpected element is far worse.
+                broken.append("an image without data")
                 continue
-            images.append(
-                GeneratedImage(
-                    data=decode_base64(encoded),
-                    media_type=item.get("media_type"),
+            try:
+                images.append(
+                    GeneratedImage(
+                        data=decode_base64(encoded),
+                        media_type=item.get("media_type"),
+                    )
                 )
-            )
+            except AppError as exc:
+                LOGGER.warning("One of %d images is unusable: %s", request.n, exc)
+                broken.append("an unreadable image")
         if not images:
-            raise ConfigError("The provider returned no images.")
+            raise ConfigError("The provider returned no usable images.")
+        if broken:
+            LOGGER.warning(
+                "Kept %d of %d images; %s could not be read.",
+                len(images),
+                request.n,
+                ", ".join(broken),
+            )
 
         usage = payload.get("usage") or {}
         return GenerationResult(

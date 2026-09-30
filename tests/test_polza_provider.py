@@ -292,9 +292,9 @@ def test_single_image_runs_one_task(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.cost_rub == 2.9
 
 
-def test_cancel_stops_before_the_next_task(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.core.errors import CancelledError
-
+def test_cancel_keeps_the_images_already_paid_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every image at Polza.ai is a separate paid task, so a cancel must not
+    throw away the tasks that already produced a picture."""
     provider = PolzaProvider("key")
     calls: list[dict] = []
 
@@ -308,11 +308,64 @@ def test_cancel_stops_before_the_next_task(monkeypatch: pytest.MonkeyPatch) -> N
         }
 
     monkeypatch.setattr(provider, "_post", fake_post)
-    # Cancel after the first task has been paid for and produced an image.
-    with pytest.raises(CancelledError):
-        provider.generate(_request(n=4), timeout=1, cancel_check=lambda: len(calls) >= 1)
+    result = provider.generate(
+        _request(n=4), timeout=1, cancel_check=lambda: len(calls) >= 1
+    )
 
+    # Only the first task was run, and its image and cost come back.
     assert len(calls) == 1
+    assert len(result.images) == 1
+    assert result.cost_rub == 2.9
+
+
+def test_cancel_before_any_image_still_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.errors import CancelledError
+
+    provider = PolzaProvider("key")
+    monkeypatch.setattr(provider, "_post", lambda *a, **k: {})
+
+    with pytest.raises(CancelledError):
+        provider.generate(_request(n=2), timeout=1, cancel_check=lambda: True)
+
+
+def test_a_failing_task_keeps_the_finished_ones(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second task fails: the first one is already paid for and must
+    survive, and the batch must not keep spending after the failure."""
+    from app.core.errors import ProviderError
+
+    provider = PolzaProvider("key")
+    calls: list[dict] = []
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        calls.append(body)
+        if len(calls) == 1:
+            return {
+                "status": "completed",
+                "model": body["model"],
+                "data": {"b64_json": base64.b64encode(PNG).decode("ascii")},
+                "usage": {"cost_rub": 2.9},
+            }
+        raise ProviderError("the provider is out of funds")
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    result = provider.generate(_request(n=4), timeout=1)
+
+    assert len(calls) == 2, "the batch must stop at the first failure"
+    assert len(result.images) == 1
+    assert result.cost_rub == 2.9
+
+
+def test_a_failure_on_the_first_task_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.errors import ProviderError
+
+    provider = PolzaProvider("key")
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        raise ProviderError("the provider is out of funds")
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    with pytest.raises(ProviderError):
+        provider.generate(_request(n=3), timeout=1)
 
 
 # ---------- results ----------

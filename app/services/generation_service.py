@@ -217,7 +217,33 @@ class GenerationService:
         if cancel_check is not None and cancel_check():
             raise CancelledError()
 
-        file_paths = self._save_images(result, save_dir, request)
+        # The provider has already charged for this request, so a failure to
+        # write the files must still leave a record with the cost: the money is
+        # spent either way, and the user has to see what happened. Images that
+        # did make it to disk are shown and recorded, the entry is marked as
+        # failed so the missing ones are not passed off as a complete batch.
+        try:
+            file_paths, save_error = self._save_images(result, save_dir, request)
+        except OSError as exc:
+            LOGGER.error("Could not save the images: %s", exc)
+            self._record(
+                HistoryRecord(
+                    timestamp=now_iso(),
+                    provider_id=request.provider_id,
+                    model=result.model,
+                    prompt=request.prompt,
+                    n=len(result.images),
+                    cost_rub=result.cost_rub,
+                    status="error",
+                    error=f"The images were paid for but not saved: {exc}",
+                    request=snapshot,
+                    duration_seconds=time.monotonic() - started,
+                ),
+                limit=history_limit,
+            )
+            raise
+        if save_error:
+            LOGGER.error(save_error)
         self._record(
             HistoryRecord(
                 timestamp=now_iso(),
@@ -227,7 +253,8 @@ class GenerationService:
                 n=len(result.images),
                 cost_rub=result.cost_rub,
                 file_paths=file_paths,
-                status="ok",
+                status="error" if save_error else "ok",
+                error=save_error,
                 request=snapshot,
                 duration_seconds=time.monotonic() - started,
             ),
@@ -252,18 +279,39 @@ class GenerationService:
     @staticmethod
     def _save_images(
         result: GenerationResult, save_dir: Path, request: GenerationRequest
-    ) -> list[str]:
+    ) -> tuple[list[str], str | None]:
+        """Write the images and report what could not be written.
+
+        Returns the saved paths and, when at least one image was lost, a text
+        for the history entry. A batch is not thrown away because one file in
+        the middle failed: the paid pictures that made it to disk are shown and
+        the entry says that the batch is incomplete.
+        """
         save_dir.mkdir(parents=True, exist_ok=True)
         stamp = now_iso().replace(":", "-")
         model = safe_filename_component(result.model)
         paths: list[str] = []
+        failed = 0
+        first_error = ""
         for index, image in enumerate(result.images, 1):
             extension = _extension_for(image)
             suffix = f"_{index}" if len(result.images) > 1 else ""
             path = save_dir / f"{stamp}_{model}{suffix}.{extension}"
-            path.write_bytes(image.data)
+            try:
+                path.write_bytes(image.data)
+            except OSError as exc:
+                failed += 1
+                first_error = first_error or str(exc)
+                continue
             paths.append(str(path))
-        return paths
+        if not paths:
+            raise OSError(f"no image could be saved: {first_error or 'unknown error'}")
+        if failed:
+            return paths, (
+                f"{failed} of {len(result.images)} images were paid for but could "
+                f"not be saved: {first_error}"
+            )
+        return paths, None
 
     @staticmethod
     def _validate_choice(value: str | None, allowed: list[str], field_name: str) -> None:

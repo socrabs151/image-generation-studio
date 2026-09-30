@@ -25,7 +25,13 @@ from dataclasses import replace
 
 import requests
 
-from app.core.errors import CancelledError, ConfigError, ProviderError, ProviderTimeoutError
+from app.core.errors import (
+    AppError,
+    CancelledError,
+    ConfigError,
+    ProviderError,
+    ProviderTimeoutError,
+)
 from app.core.models import (
     AccountInfo,
     GeneratedImage,
@@ -33,6 +39,7 @@ from app.core.models import (
     GenerationResult,
     ModelInfo,
 )
+from app.logging_setup import get_logger
 from app.providers.base import Provider, wrap_network_error
 from app.providers.http_utils import (
     USER_AGENT,
@@ -50,6 +57,8 @@ API_ROOT = "https://polza.ai/api"
 CATALOG_URL = f"{API_ROOT}/v1/models/catalog"
 MEDIA_URL = f"{API_ROOT}/v1/media"
 BALANCE_URL = f"{API_ROOT}/v2/balance"
+
+LOGGER = get_logger()
 
 CATALOG_PAGE_SIZE = 100
 POLL_INTERVAL = 4.0
@@ -172,25 +181,54 @@ class PolzaProvider(Provider):
         timeout: int,
         cancel_check: Callable[[], bool] | None,
     ) -> GenerationResult:
-        """Run one media task per requested image and collect all results."""
+        """Run one media task per requested image and collect all results.
+
+        At Polza every image is a separate paid task, so a task that fails or is
+        cancelled must not throw away the tasks that already succeeded. The
+        finished ones are returned, the history records how many really arrived,
+        and the batch stops there rather than spending more money after a
+        failure.
+        """
         images: list[GeneratedImage] = []
         cost = 0.0
         priced = False
         model = request.model
+        stopped_early: str | None = None
         for index in range(request.n):
             if cancel_check is not None and cancel_check():
-                raise CancelledError()
+                stopped_early = "cancelled"
+                break
             # A fixed seed would make every task return the same picture, so each
             # image after the first is drawn from the next seed value.
             task = replace(request, n=1, seed=_seed_for(request.seed, index))
-            outcome = self._run_task(task, timeout, cancel_check)
+            try:
+                outcome = self._run_task(task, timeout, cancel_check)
+            except CancelledError:
+                stopped_early = "cancelled"
+                break
+            except AppError as exc:
+                stopped_early = f"task {index + 1} of {request.n} failed: {exc}"
+                break
             images.extend(outcome.images)
             if outcome.cost_rub is not None:
                 cost += outcome.cost_rub
                 priced = True
             model = outcome.model or model
+
         if not images:
+            if stopped_early == "cancelled":
+                raise CancelledError()
+            if stopped_early is not None:
+                raise ProviderError(f"Polza.ai returned nothing: {stopped_early}")
             raise ConfigError("The provider returned no images.")
+        if stopped_early is not None:
+            LOGGER.warning(
+                "Kept %d of %d images from %s; the batch was %s.",
+                len(images),
+                request.n,
+                request.model,
+                stopped_early,
+            )
         return GenerationResult(
             images=images,
             cost_rub=cost if priced else None,

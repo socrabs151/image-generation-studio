@@ -7,9 +7,14 @@ from pathlib import Path
 import pytest
 
 from app.core.errors import BadParameterError, ConfigError
-from app.core.models import GeneratedImage, GenerationRequest, GenerationResult, ModelInfo
+from app.core.models import (
+    GeneratedImage,
+    GenerationRequest,
+    GenerationResult,
+    ModelInfo,
+)
 from app.services.generation_service import GenerationService, safe_filename_component
-from app.services.history_store import HistoryStore
+from app.services.history_store import HistoryRecord, HistoryStore
 
 
 @pytest.fixture()
@@ -93,7 +98,7 @@ def test_namespaced_model_id_becomes_a_flat_file_name(
         balance=None,
         model="x-ai/grok-imagine-image",
     )
-    paths = service._save_images(result, tmp_path, _request())
+    paths, save_error = service._save_images(result, tmp_path, _request())
 
     assert len(paths) == 1
     saved = Path(paths[0])
@@ -199,7 +204,7 @@ def test_extension_follows_the_bytes_when_no_media_type(
         model="muse-image",
     )
 
-    paths = service._save_images(result, tmp_path, _request())
+    paths, save_error = service._save_images(result, tmp_path, _request())
 
     assert paths[0].endswith(".jpg")
     assert Path(paths[0]).read_bytes() == jpeg
@@ -215,7 +220,7 @@ def test_declared_media_type_wins_over_the_bytes(
         model="muse-image",
     )
 
-    paths = service._save_images(result, tmp_path, _request())
+    paths, save_error = service._save_images(result, tmp_path, _request())
 
     assert paths[0].endswith(".png")
 
@@ -228,7 +233,7 @@ def test_unknown_bytes_fall_back_to_png(service: GenerationService, tmp_path: Pa
         model="muse-image",
     )
 
-    paths = service._save_images(result, tmp_path, _request())
+    paths, save_error = service._save_images(result, tmp_path, _request())
 
     assert paths[0].endswith(".png")
 
@@ -275,6 +280,142 @@ def test_failed_generation_still_raises_when_history_is_broken(
 
 def _raise_config_error(*_args, **_kwargs) -> None:
     raise ConfigError("Cannot read history file: broken")
+
+
+# ---------- what ends up in the history is what matters ----------
+
+
+def test_the_cost_and_the_files_reach_the_history(
+    service: GenerationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A paid generation has to be visible in the history with its cost and
+    its files. Removing either from the record breaks nothing else, so this
+    is the only thing that notices."""
+    recorded: list[HistoryRecord] = []
+    result = GenerationResult(
+        images=[
+            GeneratedImage(data=b"\x89PNG\r\n\x1a\n" + b"1" * 8),
+            GeneratedImage(data=b"\x89PNG\r\n\x1a\n" + b"2" * 8),
+        ],
+        cost_rub=12.5,
+        balance=None,
+        model="muse-image",
+    )
+    monkeypatch.setattr(
+        "app.services.generation_service.create_provider",
+        lambda provider_id, api_key: _StubProvider(result),
+    )
+    monkeypatch.setattr(
+        service._history, "add", lambda record, limit: recorded.append(record), raising=True
+    )
+
+    outcome = service.generate(_request(n=2), _model(), save_dir=tmp_path, api_key="k")
+
+    assert len(recorded) == 1
+    record = recorded[0]
+    assert record.status == "ok"
+    assert record.cost_rub == 12.5
+    assert record.n == 2
+    assert record.model == "muse-image"
+    assert len(record.file_paths) == 2
+    assert all(Path(path).exists() for path in record.file_paths)
+    assert record.file_paths == outcome.file_paths
+
+
+def test_a_failed_generation_is_recorded_with_its_text(
+    service: GenerationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded: list[HistoryRecord] = []
+    monkeypatch.setattr(
+        "app.services.generation_service.create_provider",
+        lambda provider_id, api_key: _StubProvider(None),
+    )
+    monkeypatch.setattr(
+        service._history, "add", lambda record, limit: recorded.append(record), raising=True
+    )
+
+    with pytest.raises(ConfigError):
+        service.generate(_request(), _model(), save_dir=tmp_path, api_key="k")
+
+    assert len(recorded) == 1
+    assert recorded[0].status == "error"
+    assert "refused" in recorded[0].error
+    assert recorded[0].n == 1
+
+
+def test_a_failure_to_write_the_files_still_records_the_cost(
+    service: GenerationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The provider has charged by then. A full disk must not erase the
+    record of what the money was spent on."""
+    recorded: list[HistoryRecord] = []
+    result = GenerationResult(
+        images=[GeneratedImage(data=b"\x89PNG\r\n\x1a\n" + b"0" * 8)],
+        cost_rub=7.25,
+        balance=None,
+        model="muse-image",
+    )
+    monkeypatch.setattr(
+        "app.services.generation_service.create_provider",
+        lambda provider_id, api_key: _StubProvider(result),
+    )
+    monkeypatch.setattr(
+        service._history, "add", lambda record, limit: recorded.append(record), raising=True
+    )
+    # save_dir points at an existing file, so mkdir fails.
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("x", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        service.generate(_request(), _model(), save_dir=blocker, api_key="k")
+
+    assert len(recorded) == 1
+    assert recorded[0].cost_rub == 7.25
+    assert recorded[0].status == "error"
+    assert "not saved" in recorded[0].error
+
+
+def test_one_unwritable_file_does_not_lose_the_rest_of_the_batch(
+    service: GenerationService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Six paid images, one write fails: five are shown and recorded, and the
+    entry says the batch is incomplete instead of passing it off as whole."""
+    recorded: list[HistoryRecord] = []
+    result = GenerationResult(
+        images=[GeneratedImage(data=b"\x89PNG\r\n\x1a\n" + bytes([n]) * 8) for n in range(6)],
+        cost_rub=30.0,
+        balance=None,
+        model="muse-image",
+    )
+    monkeypatch.setattr(
+        "app.services.generation_service.create_provider",
+        lambda provider_id, api_key: _StubProvider(result),
+    )
+    monkeypatch.setattr(
+        service._history, "add", lambda record, limit: recorded.append(record), raising=True
+    )
+    real_write = Path.write_bytes
+    calls = {"n": 0}
+
+    def flaky_write(self: Path, data: bytes) -> int:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise OSError(28, "No space left on device")
+        return real_write(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", flaky_write)
+
+    outcome = service.generate(
+        _request(n=6), _model(max_n=6), save_dir=tmp_path, api_key="k"
+    )
+
+    assert len(outcome.file_paths) == 5
+    assert all(Path(path).exists() for path in outcome.file_paths)
+    assert len(recorded) == 1
+    assert recorded[0].status == "error"
+    assert recorded[0].cost_rub == 30.0
+    assert len(recorded[0].file_paths) == 5
+    assert "1 of 6" in recorded[0].error
 
 
 class _StubProvider:
