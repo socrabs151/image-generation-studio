@@ -150,6 +150,7 @@ class MainWindow(QMainWindow):
 
         self.prompt = PromptPanel()
         self.log = LogPanel()
+        self.log.install_logging_bridge()
         root.addWidget(self.prompt)
         root.addWidget(self.log)
 
@@ -629,14 +630,6 @@ class MainWindow(QMainWindow):
             "Generate when the request looks right."
         )
 
-    def _select_model(self, model_id: str) -> bool:
-        """Select a model in the list by id."""
-        for index, model in enumerate(self._models):
-            if model.id == model_id:
-                self._model_combo.setCurrentIndex(index)
-                return True
-        return False
-
     # ---------- worker plumbing ----------
     def _run(self, function, *args, on_done, on_fail, **kwargs) -> None:
         worker = FunctionWorker(function, *args, **kwargs)
@@ -691,8 +684,27 @@ class MainWindow(QMainWindow):
                 if model.id == keep:
                     self._model_combo.setCurrentIndex(index)
                     break
-        self._update_fav_button()
-        self._sync_generate_state()
+        self._sync_selected_model()
+
+    def _sync_selected_model(self) -> None:
+        """Bring the parameters and the status bar in line with the selection.
+
+        The combo is refilled with its signals blocked, and setting the index
+        it already has says nothing, so ``_on_model_changed`` does not fire on
+        its own. Without this call the first model of a freshly loaded catalog
+        stays unselected everywhere else: no parameters, no price, "Model: —"
+        in the status bar.
+        """
+        self._on_model_changed(self._model_combo.currentIndex())
+
+    def _refresh_model_icons(self) -> None:
+        """Repaint the favourite marks without refilling the list."""
+        favourites = self._settings.favorite_models
+        star = favourite_icon(True, self._settings.theme)
+        for index, model in enumerate(self._visible):
+            self._model_combo.setItemIcon(
+                index, star if is_favourite(model, favourites) else QIcon()
+            )
 
     def _apply_model_filter(self, _text: str = "") -> None:
         """Apply the search text to the model list."""
@@ -953,9 +965,10 @@ class MainWindow(QMainWindow):
         applied = apply_theme(QGuiApplication.instance(), theme)
         self._settings.theme = applied
         # The star icons are coloured per theme, so they have to be reloaded.
+        # Only the marks are repainted: refilling the list would rebuild the
+        # parameter panel and lose the fields the user has already set.
         self._update_fav_button()
-        selected = self._selected_model()
-        self._rebuild_model_list(selected.id if selected is not None else "")
+        self._refresh_model_icons()
         if self._docs_window is not None:
             self._docs_window.set_theme(applied)
         for name, action in self._theme_actions.items():
