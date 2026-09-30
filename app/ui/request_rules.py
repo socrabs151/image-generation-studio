@@ -70,6 +70,11 @@ def save_folder_problem(folder: str | os.PathLike[str]) -> str | None:
     touched only once the aggregator had already charged for the work. A write
     probe is the only honest check for a full disk, and it is removed again.
     """
+    # An empty value means the current folder: ``Path("")`` is ``Path(".")``, and
+    # a damaged settings file can leave exactly that behind. Saying "ok" would
+    # scatter the results across whatever directory the app was started from.
+    if not str(folder).strip():
+        return "The save folder is not set."
     target = Path(folder)
     try:
         target.mkdir(parents=True, exist_ok=True)

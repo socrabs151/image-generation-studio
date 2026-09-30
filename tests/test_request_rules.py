@@ -135,9 +135,23 @@ def test_a_folder_that_cannot_be_created_is_reported(tmp_path: Path) -> None:
     assert save_folder_problem(blocker / "a" / "b") is not None
 
 
-@pytest.mark.parametrize("name", ["", "   "])
+@pytest.mark.parametrize("name", ["", "   ", "\t", "\n"])
 def test_an_empty_folder_name_is_reported(name: str) -> None:
-    """An empty path is what a damaged settings file can leave behind; it used
-    to hang the interface with Generate disabled and Stop doing nothing."""
+    """A damaged settings file can leave the save folder empty.
+
+    ``Path("")`` is ``Path(".")``, so without this check the probe would report
+    "ok" and the results would land in whatever directory the app was started
+    from, with no warning anywhere.
+    """
     problem = save_folder_problem(name)
-    assert problem is not None or name.strip() == name
+    assert problem is not None, f"{name!r} must not be accepted as a folder"
+    assert "not set" in problem
+
+
+def test_an_empty_folder_name_creates_nothing(tmp_path: Path, monkeypatch) -> None:
+    """Not only is it refused, no file is left behind anywhere."""
+    monkeypatch.chdir(tmp_path)
+
+    save_folder_problem("")
+
+    assert list(tmp_path.iterdir()) == []
