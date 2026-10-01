@@ -7,6 +7,8 @@ full size with zoom and navigation.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -19,7 +21,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-_THUMB_SIZE = 180
+from app.ui.thumb_budget import THUMB_SIZE, retained_size
+
+_THUMB_SIZE = THUMB_SIZE
 _THUMB_PADDING = 6
 _CELL = _THUMB_SIZE + 2 * _THUMB_PADDING
 _CELL_SPACING = 8
@@ -328,6 +332,25 @@ class ZoomableView(QWidget):
             self.zoom_fit()
 
 
+def _retained(pixmap: QPixmap) -> QPixmap:
+    """A copy of ``pixmap`` reduced to the size the grid keeps.
+
+    An image already small enough is kept as it is: scaling it up would cost
+    memory and blur the thumbnail.
+    """
+    if pixmap.isNull():
+        return pixmap
+    width, height = retained_size(pixmap.width(), pixmap.height())
+    if (width, height) == (pixmap.width(), pixmap.height()):
+        return pixmap
+    return pixmap.scaled(
+        width,
+        height,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+
+
 class Thumbnail(QLabel):
     """A clickable result thumbnail."""
 
@@ -407,8 +430,14 @@ class ResultViewer(QWidget):
 
         ``paths`` are the files behind the images, when known: the viewer shows the
         file name, the size on disk and offers to open the folder.
+
+        The grid draws 180 px thumbnails, so the full-size pictures are dropped
+        right away and only reduced copies are kept. Six 4K results were about
+        384 MiB of resident memory for a grid that never shows more than 180 px.
+        The full-size images are read back from ``paths`` when the viewer window
+        opens, which is the one place that needs them.
         """
-        self._images = list(images)
+        self._images = [_retained(pixmap) for pixmap in images]
         self._paths = list(paths) if paths else []
         self._message.setVisible(False)
         self._message.clear()
@@ -429,8 +458,23 @@ class ResultViewer(QWidget):
         self._placeholder.setVisible(False)
 
     def images(self) -> list[QPixmap]:
-        """The currently displayed images."""
+        """The currently displayed images, at grid resolution."""
         return list(self._images)
+
+    def full_images(self) -> list[QPixmap]:
+        """The images at full size, read back from disk where possible.
+
+        Opening the viewer needs the real pixels, so they are loaded here, on
+        purpose, instead of being held in memory from the moment of generation. A
+        file that has gone missing falls back to the reduced copy, so the window
+        opens either way.
+        """
+        full: list[QPixmap] = []
+        for index, reduced in enumerate(self._images):
+            path = self.path_at(index)
+            loaded = QPixmap(path) if path and Path(path).exists() else QPixmap()
+            full.append(loaded if not loaded.isNull() else reduced)
+        return full
 
     def paths(self) -> list[str]:
         """The files behind the images, when known."""

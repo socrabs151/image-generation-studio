@@ -1067,7 +1067,9 @@ class MainWindow(QMainWindow):
         window.raise_()
 
     def _open_result_viewer(self, index: int) -> None:
-        images = self.workspace.result_viewer.images()
+        # The full-size images are read from disk here, on purpose: the grid keeps
+        # only reduced copies, so six 4K results do not sit in memory all day.
+        images = self.workspace.result_viewer.full_images()
         if not images:
             return
         window = ImageViewerWindow(
