@@ -211,7 +211,7 @@ class ImageViewerWindow(QMainWindow):
             "Open folder", self._open_folder_action, "Show the file in its folder"
         )
         self._copy = self._button("Copy", self._copy, "Copy the image (Ctrl+C)")
-        self._save = self._button("Save as…", self._save_as, "Save the image to a file")
+        self._save = self._button("Save as…", self._save_as, "Save the image (Ctrl+S)")
 
         actions = QHBoxLayout()
         actions.setContentsMargins(8, 6, 8, 6)

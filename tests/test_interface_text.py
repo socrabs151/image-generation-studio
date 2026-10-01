@@ -110,3 +110,33 @@ def test_the_balance_label_says_it_is_not_live() -> None:
     balance = text[text.find("self._balance_label.setToolTip") :][:400]
     assert "refresh" in balance.lower()
     assert "check balance" in balance.lower()
+
+
+def test_the_viewer_handles_ctrl_s() -> None:
+    """The tooltip on the Save button promises Ctrl+S, so the shortcut has to be
+    there. It was removed once already because a report said it was missing; the
+    report was wrong, and the check was skipped."""
+    text = _source("app/ui/dialogs/image_viewer.py")
+    # The whole branch, not just the constant: Key_S also occurs in Key_Space.
+    assert re.search(
+        r"if control and key == Qt\.Key\.Key_S:\s*\n\s*self\._save_as\(\)",
+        text,
+    ), "Ctrl+S must call _save_as in the viewer"
+    assert "Ctrl+S" in text, "the Save button promises Ctrl+S"
+
+
+def test_a_shortcut_promised_in_a_tooltip_is_handled() -> None:
+    """Cross-check: every Ctrl+X named in a user-visible string of the image
+    viewer has a matching key handler, so a tooltip cannot promise a shortcut
+    that does not exist."""
+    text = _source("app/ui/dialogs/image_viewer.py")
+    promised = set(re.findall(r"Ctrl\+([A-Z])", text))
+    assert promised, "no shortcut is named in the viewer tooltips"
+    missing = [
+        key
+        for key in promised
+        if not re.search(rf"key == Qt\.Key\.Key_{key}\b", text)
+    ]
+    assert not missing, (
+        f"the viewer promises Ctrl+{', Ctrl+'.join(missing)} but has no handler"
+    )
