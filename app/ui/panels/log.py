@@ -15,13 +15,39 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from app.logging_setup import add_handler
+from app.logging_setup import add_handler, file_logger
+
+#: A logger of its own, deliberately *not* under "image_generation_studio".
+#: A child of it would travel back into the application logger, into the bridge
+#: below and into this panel again, forever.
+_MIRROR = file_logger("image_generation_studio_ui")
 
 _LEVEL_PREFIX = {
     "info": "",
     "warning": "WARNING: ",
     "error": "ERROR: ",
 }
+
+_FILE_LEVEL = {
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+}
+
+#: A logger of its own, deliberately *not* under "image_generation_studio".
+#: A child of it would travel back into the application logger, into the bridge
+#: below and into this panel again, forever.
+_MIRROR = file_logger("image_generation_studio_ui")
+
+
+def _mirror_to_file(level: str, message: str) -> None:
+    """Write what the panel shows to ``data/app.log`` as well.
+
+    The panel was the only place an interface error appeared, so ``app.log`` could
+    not explain a failure the user had already reported. A separate logger name
+    keeps this from looping back through the bridge.
+    """
+    _MIRROR.log(_FILE_LEVEL.get(level, logging.INFO), message)
 
 
 class LogPanel(QFrame):
@@ -72,6 +98,7 @@ class LogPanel(QFrame):
         prefix = _LEVEL_PREFIX.get(level, "")
         self.view.appendPlainText(f"{prefix}{message}")
         self.view.moveCursor(QTextCursor.MoveOperation.End)
+        _mirror_to_file(level, message)
 
     def append(self, level: str, message: str) -> None:
         """Add a line with an explicit level."""

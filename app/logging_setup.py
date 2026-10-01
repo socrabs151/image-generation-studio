@@ -49,3 +49,30 @@ def add_handler(handler: logging.Handler) -> None:
     """Attach an extra handler, for example one that shows messages in the UI."""
     logger = get_logger()
     logger.addHandler(handler)
+
+
+def file_logger(name: str) -> logging.Logger:
+    """A second logger that writes to the same rotating file.
+
+    Used for messages that originate in the interface. It is deliberately *not*
+    a child of the application logger: a child would feed the UI bridge and come
+    back into the log panel, once per line, forever.
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    existing = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
+    if existing:
+        return logger
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        logger.addHandler(handler)
+    except OSError as exc:
+        print(f"The log file could not be opened: {exc}", file=sys.stderr)
+    return logger

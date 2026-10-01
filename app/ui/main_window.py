@@ -434,7 +434,7 @@ class MainWindow(QMainWindow):
             api_key=self._keystore.get(provider_id),
             on_done=self._on_catalog_loaded,
             on_fail=self._on_catalog_failed,
-            unlock_prompt=False,
+            is_generation=False,
         )
 
     def check_balance(self) -> None:
@@ -451,7 +451,7 @@ class MainWindow(QMainWindow):
             create_provider(provider_id, api_key).check_account,
             on_done=self._on_account,
             on_fail=lambda message: self.log.error(f"Balance check failed: {message}"),
-            unlock_prompt=False,
+            is_generation=False,
         )
 
     def generate(self) -> None:
