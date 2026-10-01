@@ -10,7 +10,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, QSize, Qt, QThreadPool
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import (
+    QAction,
+    QFontMetrics,
+    QGuiApplication,
+    QIcon,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -74,6 +81,17 @@ def _is_text_input(widget: QWidget | None) -> bool:
         return False
     editable_combo = isinstance(widget, QComboBox) and widget.isEditable()
     return is_text_input(type(widget).__name__, editable_combo=editable_combo)
+
+
+MODEL_COMBO_TOOLTIP = (
+    "The model that will generate the image. Favourites are marked with a star and "
+    "sit at the top; the parameters below follow the selected model."
+)
+
+PLACEHOLDER_NO_MODELS = (
+    "No models: the catalog did not load. Press Refresh catalog, and check the API "
+    "key in Settings."
+)
 
 
 class MainWindow(QMainWindow):
@@ -197,6 +215,10 @@ class MainWindow(QMainWindow):
         self._provider_combo = QComboBox()
         for provider_id, name in provider_choices():
             self._provider_combo.addItem(name, provider_id)
+        # The names are short but the combo collapses to nothing without a floor:
+        # it was laid out 46 px wide and cut "AITUNNEL" in half. Measured from the
+        # font, with room for the arrow.
+        self._provider_combo.setMinimumWidth(self._text_width() + 34)
         self._select_provider(self._settings.default_provider)
         self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         self._provider_combo.setToolTip(
@@ -321,10 +343,7 @@ class MainWindow(QMainWindow):
 
         self._model_combo = QComboBox()
         self._model_combo.setMinimumWidth(420)
-        self._model_combo.setToolTip(
-            "The model that will generate the image. Favourites are marked with a "
-            "star and sit at the top; the parameters below follow the selected model."
-        )
+        self._model_combo.setToolTip(MODEL_COMBO_TOOLTIP)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         row.addWidget(self._model_combo, stretch=1)
 
@@ -758,8 +777,16 @@ class MainWindow(QMainWindow):
             self._pending_recent = None
             if not self._select_model(wanted, quiet=True):
                 self._select_model(self._models[0].id, quiet=True)
+            # The list is real again, so the placeholder and the failure hint from
+            # an earlier attempt go away.
+            self._model_combo.setToolTip(MODEL_COMBO_TOOLTIP)
         else:
-            self._rebuild_model_list()
+            self._show_model_combo_message(
+                "No models in the catalog of this aggregator yet. Press "
+                "Refresh catalog."
+            )
+            self._status_model.setText("Model: — (empty catalog)")
+            self._sync_generate_state()
         # A Repeat across providers waits here: the model only exists now.
         self._apply_pending_restore()
 
@@ -771,6 +798,9 @@ class MainWindow(QMainWindow):
         self._visible = visible_models(self._models, self._model_search.text(), favourites)
         star = favourite_icon(True, theme)
         self._model_combo.blockSignals(True)
+        # A failed load leaves a disabled placeholder behind; a real catalog puts
+        # the list back in working order.
+        self._model_combo.setEnabled(True)
         self._model_combo.clear()
         for model in self._visible:
             # Every row gets an icon slot, so the names stay in one column and
@@ -917,19 +947,53 @@ class MainWindow(QMainWindow):
         self._settings_store.save(self._settings)
         self.log.info("The list of lately used models is cleared.")
 
+    @staticmethod
+    def _text_width() -> int:
+        """Width of the widest aggregator name in the interface font."""
+        metrics = QFontMetrics(QApplication.font())
+        return max(metrics.horizontalAdvance(name) for _, name in provider_choices())
+
+    def _show_model_combo_message(self, message: str) -> None:
+        """Put a sentence into the model list itself.
+
+        An empty drop-down in the middle of the window looks broken, and the user
+        has no way to tell "no models yet" from "the catalog failed to load". One
+        disabled row is read without being clicked.
+
+        The visible list is cleared as well: it is what the selection is resolved
+        against, and a stale entry there would let the app believe a model is
+        still chosen and enable Generate.
+        """
+        self._visible = []
+        self._model_combo.blockSignals(True)
+        self._model_combo.clear()
+        if message:
+            self._model_combo.addItem(message)
+            self._model_combo.setEnabled(False)
+        else:
+            self._model_combo.setEnabled(True)
+        self._model_combo.blockSignals(False)
+
     def _sync_generate_state(self) -> None:
-        """Enable the Generate button only when a model is selected."""
+        """Enable the Generate button only when a model is selected.
+
+        Without a model there is nothing to send, so the button must say so
+        instead of accepting the press and reporting the refusal afterwards.
+        """
         self.prompt.generate.setEnabled(self._selected_model() is not None)
 
     def _on_catalog_failed(self, message: str) -> None:
         self.log.error(f"Catalog load failed: {message}")
         # An empty combo in the middle of the top bar explains nothing on its
-        # own, and the log panel is easy to miss.
+        # own, and the log panel is easy to miss. The list itself has to say what
+        # happened and what to do, because that is where the user is looking.
         self._status_model.setText("Model: — (catalog failed)")
         self._model_combo.setToolTip(
             f"The catalog could not be loaded: {message}\n"
             "Check the API key in Settings and press Refresh catalog."
         )
+        self._show_model_combo_message(PLACEHOLDER_NO_MODELS)
+        self._sync_generate_state()
 
     def _on_account(self, account: AccountInfo) -> None:
         balance = f"{format_money(account.balance)} ₽"

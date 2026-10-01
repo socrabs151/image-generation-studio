@@ -99,8 +99,15 @@ def test_the_seed_tooltip_mentions_the_repeat_promise() -> None:
 
 def test_the_model_list_explains_the_star() -> None:
     text = _source("app/ui/main_window.py")
-    combo = text[text.find("self._model_combo.setToolTip") :][:300]
-    assert "star" in combo.lower(), "the combo tooltip must say what the star means"
+    # The text lives in a constant, so check that it is defined and used.
+    assert "MODEL_COMBO_TOOLTIP = (" in text, "the model list tooltip must be defined"
+    start = text.index("MODEL_COMBO_TOOLTIP = (")
+    end = text.index(")", start)
+    tooltip = text[start:end].lower()
+    assert "star" in tooltip, "the combo tooltip must say what the star means"
+    assert "self._model_combo.setToolTip(MODEL_COMBO_TOOLTIP)" in text, (
+        "the tooltip must be applied to the combo"
+    )
 
 
 def test_the_balance_label_says_it_is_not_live() -> None:
