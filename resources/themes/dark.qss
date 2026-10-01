@@ -25,6 +25,16 @@ QComboBox:focus, QLineEdit:focus, QSpinBox:focus { border-color: #6c8cff; }
 QComboBox::drop-down { border: none; width: 16px; }
 QComboBox QAbstractItemView { background-color: #27273a; selection-background-color: #3a3a52; }
 
+/* Недоступные элементы: только цвет, без изменения рамки и отступов. Правило
+   рядом с базовым перебивает его, а размеры остаются прежними — иначе поля
+   прыгают при переключении модели, и раскладка разъезжается. */
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled {
+    background-color: #262639;
+    border-color: #35354c;
+    color: #6a6a84;
+}
+QComboBox:disabled::drop-down { border: none; width: 16px; }
+
 QPushButton {
     background-color: #2f2f45;
     border: 1px solid #3a3a52;
@@ -33,6 +43,11 @@ QPushButton {
 }
 QPushButton:hover { background-color: #3a3a52; }
 QPushButton:pressed { background-color: #454563; }
+QPushButton:disabled {
+    background-color: #262639;
+    border-color: #35354c;
+    color: #6a6a84;
+}
 QPushButton#primary {
     background-color: #6c8cff;
     color: #ffffff;
@@ -41,9 +56,15 @@ QPushButton#primary {
     padding: 4px 14px;
 }
 QPushButton#primary:hover { background-color: #5a7aff; }
+QPushButton#primary:disabled {
+    background-color: #343a5c;
+    border-color: #343a5c;
+    color: #6b7091;
+}
 QPushButton#danger { color: #f87171; border-color: #f87171; }
 QPushButton#link { background: transparent; border: none; color: #6c8cff; }
 QPushButton#link:hover { text-decoration: underline; }
+QPushButton#link:disabled { background: transparent; border: none; color: #4a4a66; }
 
 QFrame#panel {
     background-color: #27273a;

@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.models import GenerationRequest
+from app.core.pricing import format_money
 from app.services.history_stats import (
     filter_options,
     filter_records,
@@ -465,8 +466,36 @@ class HistoryWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path))))
 
     def _delete_selected(self) -> None:
+        """Delete the selected entry after asking, and say what is lost with it.
+
+        The entry also leaves the totals, so the cost stops counting. That is not
+        something a single press should do by surprise: the dialog names the
+        model, the prompt and the amount.
+        """
         record = self.selected_record()
         if record is None:
+            return
+        cost = format_money(record.cost_rub)
+        detail = (
+            f"{record.timestamp}\n"
+            f"{record.provider_id} · {record.model}\n\n"
+            f"Prompt: {record.prompt[:200]}"
+        )
+        if len(record.prompt) > 200:
+            detail += "…"
+        if record.cost_rub is not None:
+            detail += f"\n\nCost: {cost} ₽. It will stop counting in the totals."
+        if record.file_paths:
+            detail += "\n\nThe saved files stay on disk and are not removed."
+        answer = QMessageBox.warning(
+            self,
+            "Delete this entry?",
+            f"{detail}\n\nThis cannot be undone. Export the history first if you may"
+            " need it later.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
             return
         self._history.delete(record.id)
         self.reload()
