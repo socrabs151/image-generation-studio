@@ -18,9 +18,11 @@ from pathlib import Path
 
 import requests
 
+from app import __version__
 from app.config import DOCS_DIR
 
-USER_AGENT = "image-generation-studio/0.1"
+#: Built from the single version in ``app/__init__.py``; see there.
+USER_AGENT = f"image-generation-studio/{__version__}"
 
 # An index line looks like: - [Title](https://host/docs/page.md): Description
 INDEX_LINE = re.compile(r"^-\s+\[(?P<title>[^]]+)\]\((?P<url>[^)]+)\)")

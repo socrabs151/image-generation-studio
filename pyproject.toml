@@ -1,6 +1,8 @@
 [project]
 name = "image-generation-studio"
-version = "0.1.0"
+# The version is not written here: it lives in app/__init__.py and is read from
+# there, so a release is one edit. A second copy here is a copy that drifts.
+dynamic = ["version"]
 description = "Desktop app for image generation via aggregators (AITUNNEL, Polza.ai)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,6 +24,9 @@ dev = [
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "app.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["app*"]
