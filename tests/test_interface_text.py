@@ -28,12 +28,30 @@ def _source(relative: str) -> str:
 
 
 def _button_block(text: str, label: str) -> str:
-    """The lines that build one button, from its label to the next statement."""
+    """The lines that build one button, together with its tooltip."""
     start = text.find(f'"{label}"')
     assert start >= 0, f"{label} not found"
-    # A tooltip may be set before or after the click connection; look a little
-    # around the label rather than at one exact line.
+    call = text.rfind("self._link_button(", 0, start)
+    if call >= 0:
+        end = text.find(")", call)
+        arguments = text[call : end + 1] if end > start else ""
+        # label, slot, tooltip
+        if arguments.count(",") >= 2 and '""' not in arguments:
+            return arguments
     return text[max(0, start - 300) : start + 400]
+
+
+def _has_tooltip(block: str) -> bool:
+    """Whether the block actually gives the button a tooltip.
+
+    ``_link_button(label, slot, tooltip)`` sets one in its body, so a call with
+    a third argument counts. Falling back to a fixed window used to satisfy this
+    check with an unrelated tooltip further up the file, which broke on any
+    rewording of a neighbouring string.
+    """
+    if "setToolTip" in block or "toolTip=" in block:
+        return True
+    return block.lstrip().startswith("self._link_button(") and block.count(",") >= 2
 
 
 def test_every_main_button_has_a_tooltip() -> None:
@@ -41,8 +59,7 @@ def test_every_main_button_has_a_tooltip() -> None:
     for relative, labels in MAIN_ACTIONS.items():
         text = _source(relative)
         for label in labels:
-            block = _button_block(text, label)
-            if "setToolTip" not in block and "toolTip=" not in block:
+            if not _has_tooltip(_button_block(text, label)):
                 missing.append(f"{relative}: {label}")
     assert not missing, f"buttons without a tooltip: {missing}"
 

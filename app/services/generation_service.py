@@ -15,10 +15,23 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import MAX_REFERENCE_BYTES, REFERENCE_FORMATS
-from app.core.errors import AppError, BadParameterError, CancelledError
-from app.core.models import GeneratedImage, GenerationRequest, GenerationResult, ModelInfo
+from app.core.errors import (
+    AppError,
+    BadParameterError,
+    CancelledError,
+    InsufficientFundsError,
+)
+from app.core.models import (
+    AccountInfo,
+    GeneratedImage,
+    GenerationRequest,
+    GenerationResult,
+    ModelInfo,
+)
+from app.core.pricing import format_money, reserved_amount
 from app.logging_setup import get_logger
 from app.providers import create_provider
+from app.providers.base import Provider
 from app.services.history_store import (
     HistoryRecord,
     HistoryStore,
@@ -97,6 +110,7 @@ class GenerationOutcome:
 
     result: GenerationResult
     file_paths: list[str]
+    account: AccountInfo | None = None
 
 
 class GenerationService:
@@ -189,12 +203,20 @@ class GenerationService:
         history_limit: int = 200,
         timeout: int = 180,
         cancel_check: Callable[[], bool] | None = None,
+        check_balance_first: bool = False,
     ) -> GenerationOutcome:
-        """Run the request through the provider, save files and record history."""
+        """Run the request through the provider, save files and record history.
+
+        With ``check_balance_first`` the balance is asked for before anything is
+        sent, so a request the aggregator would refuse fails here in a second
+        instead of after the wait. Nothing is charged and nothing is written to
+        the history when it refuses.
+        """
         self.validate(request, model)
         if cancel_check is not None and cancel_check():
             raise CancelledError()
         provider = create_provider(request.provider_id, api_key)
+        account = self._check_affordable(provider, model, request, check_balance_first)
         snapshot = request_snapshot(request)
         started = time.monotonic()
         try:
@@ -261,7 +283,46 @@ class GenerationService:
             ),
             limit=history_limit,
         )
-        return GenerationOutcome(result=result, file_paths=file_paths)
+        return GenerationOutcome(result=result, file_paths=file_paths, account=account)
+
+    def _check_affordable(
+        self,
+        provider: Provider,
+        model: ModelInfo | None,
+        request: GenerationRequest,
+        enabled: bool,
+    ) -> AccountInfo | None:
+        """Refuse a request the key cannot pay for, before sending it.
+
+        A batch is paid task by task, so a request that runs out of money half
+        way leaves the earlier pictures already charged for. The estimate comes
+        from the catalog and is an upper bound the aggregator freezes, which is
+        exactly what a pre-flight check should compare against.
+
+        A failing balance request is not a reason to block the user: the
+        aggregator is the authority and will refuse on its own.
+        """
+        if not enabled:
+            return None
+        needed = reserved_amount(model.max_price, request.n) if model else None
+        if needed is None:
+            return None
+        try:
+            account = provider.check_account()
+        except AppError as exc:
+            LOGGER.warning("Could not check the balance before the request: %s", exc)
+            return None
+        for name, available in (
+            ("balance", account.balance),
+            ("key budget", account.budget_remaining),
+        ):
+            if available is not None and available < needed:
+                raise InsufficientFundsError(
+                    f"Not enough money: the request needs about {format_money(needed)} ₽, "
+                    f"but the {name} is {format_money(available)} ₽. "
+                    "Nothing was sent and nothing was charged."
+                )
+        return account
 
     def _record(self, record: HistoryRecord, limit: int) -> None:
         """Append a history entry, never failing the generation because of it.

@@ -233,8 +233,8 @@ class MainWindow(QMainWindow):
         row.addWidget(QLabel("Balance:"))
         self._balance_label = QLabel("—")
         self._balance_label.setToolTip(
-            "The last known balance. It is not refreshed on its own: press Check "
-            "balance, and note that after a paid generation it stays as it was."
+            "The last known balance. It is refreshed before a generation with a "
+            "price in the catalog; press Check balance to ask at any other moment."
         )
         row.addWidget(self._balance_label)
         row.addWidget(
@@ -473,8 +473,6 @@ class MainWindow(QMainWindow):
         if not api_key:
             self._warn_no_key()
             return
-        if not self._can_spend():
-            return
 
         request = GenerationRequest(
             provider_id=provider_id,
@@ -499,6 +497,10 @@ class MainWindow(QMainWindow):
             return
 
         reserved = reserved_amount(model.max_price, request.n)
+        # The limit is judged against the request, so the check waits until the
+        # catalog estimate is known.
+        if not self._can_spend(reserved):
+            return
         if reserved is not None:
             self.log.info(
                 f"Estimate by catalog: {format_money(reserved)} ₽ (max×n). "
@@ -518,6 +520,7 @@ class MainWindow(QMainWindow):
             api_key,
             self._settings.history_limit,
             self._settings.generation_timeout,
+            check_balance_first=reserved is not None,
             on_done=self._on_generated,
             on_fail=self._on_generation_failed,
             is_generation=True,
@@ -1001,6 +1004,10 @@ class MainWindow(QMainWindow):
         self._sync_generate_state()
 
     def _on_account(self, account: AccountInfo) -> None:
+        self._show_account(account)
+
+    def _show_account(self, account: AccountInfo) -> None:
+        """Put the balance and budget into the top bar and the log."""
         balance = f"{format_money(account.balance)} ₽"
         parts = [f"Balance: {balance}"]
         if account.budget_remaining is not None:
@@ -1016,6 +1023,10 @@ class MainWindow(QMainWindow):
         self.workspace.show_images(pixmaps, list(outcome.file_paths))
         cost = format_money(outcome.result.cost_rub)
         self._update_session_spend(outcome.result.cost_rub)
+        # The pre-flight check has just asked the aggregator, so the label can be
+        # corrected instead of staying as it was before a paid request.
+        if outcome.account is not None:
+            self._show_account(outcome.account)
         self.log.info(f"Done. Cost: {cost} ₽. Files saved: {len(outcome.file_paths)}.")
         self.history_changed.emit()
 
@@ -1089,8 +1100,14 @@ class MainWindow(QMainWindow):
         """Where the current references came from; pasted images contribute nothing."""
         return self.workspace.reference.source_paths()
 
-    def _can_spend(self) -> bool:
-        """Whether the session spend limit allows another request."""
+    def _can_spend(self, reserved: float | None = None) -> bool:
+        """Whether the session spend limit allows this request.
+
+        The limit has to cover the request itself, not only what has already
+        been spent: with 50 ₽ left of the limit a 425 ₽ request must not go
+        through unchecked. ``reserved`` is the catalog estimate for the request
+        being started; without it only the exhausted case can be judged.
+        """
         limit = self._settings.session_limit_rub
         if limit <= 0:
             return True
@@ -1102,8 +1119,28 @@ class MainWindow(QMainWindow):
             )
             QMessageBox.warning(self, "Session limit", "The session spend limit is reached.")
             return False
-        if remaining < self._session_spend + 1:
-            self.log.warning(f"Session spend remaining: {format_money(remaining)} ₽.")
+        if reserved is None:
+            return True
+        if reserved > remaining:
+            self.log.error(
+                f"The request needs about {format_money(reserved)} ₽, but only "
+                f"{format_money(remaining)} ₽ is left of the session limit of "
+                f"{format_money(limit)} ₽. Nothing was sent."
+            )
+            QMessageBox.warning(
+                self,
+                "Session limit",
+                f"This request needs about {format_money(reserved)} ₽.\n\n"
+                f"Only {format_money(remaining)} ₽ is left of the session limit, "
+                "so it was not started.\n\n"
+                "Raise the limit in Settings → Spending, or generate fewer images.",
+            )
+            return False
+        if remaining < reserved + 1:
+            self.log.warning(
+                f"Session spend remaining: {format_money(remaining)} ₽, "
+                f"the request needs about {format_money(reserved)} ₽."
+            )
         return True
 
     def _confirm_if_expensive(self, reserved: float) -> bool:
