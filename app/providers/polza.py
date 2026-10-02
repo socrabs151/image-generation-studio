@@ -39,12 +39,13 @@ from app.core.models import (
     GenerationResult,
     ModelInfo,
 )
+from app.core.pricing import round_money
 from app.logging_setup import get_logger
 from app.providers.base import Provider, wrap_network_error
 from app.providers.http_utils import (
     USER_AGENT,
-    as_float,
     as_int,
+    as_money,
     auth_headers,
     decode_base64,
     encode_base64,
@@ -231,7 +232,10 @@ class PolzaProvider(Provider):
             )
         return GenerationResult(
             images=images,
-            cost_rub=cost if priced else None,
+            # The per-task costs are added up one float at a time, so three
+            # images at 1.26 would otherwise be recorded as 3.7800000000000002
+            # and stop matching the provider's balance.
+            cost_rub=round_money(cost) if priced else None,
             balance=None,
             model=model,
         )
@@ -342,7 +346,7 @@ class PolzaProvider(Provider):
         usage = payload.get("usage") or {}
         return GenerationResult(
             images=images,
-            cost_rub=as_float(usage.get("cost_rub") or usage.get("cost")),
+            cost_rub=as_money(usage.get("cost_rub") or usage.get("cost")),
             balance=None,
             model=str(payload.get("model") or fallback_model),
         )
@@ -362,10 +366,10 @@ class PolzaProvider(Provider):
         self._require_key()
         payload = self._get(BALANCE_URL, timeout)
         info = AccountInfo()
-        info.balance = as_float(payload.get("amount"))
-        info.budget_remaining = as_float(payload.get("available"))
-        reserved = as_float(payload.get("reservedAmount"))
-        spent = as_float(payload.get("spentAmount"))
+        info.balance = as_money(payload.get("amount"))
+        info.budget_remaining = as_money(payload.get("available"))
+        reserved = as_money(payload.get("reservedAmount"))
+        spent = as_money(payload.get("spentAmount"))
         if reserved is not None:
             info.limits["reserved"] = reserved
         if spent is not None:
@@ -429,12 +433,12 @@ def _price_range(pricing) -> tuple[float | None, float | None]:
     if isinstance(tiers, list) and tiers:
         costs = [
             cost
-            for cost in (as_float(tier.get("cost_rub")) for tier in tiers if isinstance(tier, dict))
+            for cost in (as_money(tier.get("cost_rub")) for tier in tiers if isinstance(tier, dict))
             if cost is not None
         ]
         if costs:
             return min(costs), max(costs)
-    per_request = as_float(pricing.get("per_request"))
+    per_request = as_money(pricing.get("per_request"))
     if per_request is not None:
         return per_request, per_request
     return None, None

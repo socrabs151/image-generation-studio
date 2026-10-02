@@ -25,7 +25,10 @@ def test_format_price_flat_and_range() -> None:
 def test_reserved_amount() -> None:
     assert reserved_amount(None, 3) is None
     assert reserved_amount(20.4, 1) == 20.4
-    assert reserved_amount(20.4, 3) == 20.4 * 3
+    # 20.4 * 3 is 61.199999999999996 in binary floating point. The reserved
+    # amount is a ruble figure the provider compares against, so it has to be a
+    # real number of kopecks.
+    assert reserved_amount(20.4, 3) == 61.2
 
 
 def test_can_afford() -> None:

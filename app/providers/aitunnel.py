@@ -28,8 +28,8 @@ from app.logging_setup import get_logger
 from app.providers.base import Provider, wrap_network_error
 from app.providers.http_utils import (
     USER_AGENT,
-    as_float,
     as_int,
+    as_money,
     auth_headers,
     decode_base64,
     ensure_ok,
@@ -101,8 +101,8 @@ class AitunnelProvider(Provider):
             id=name,
             provider_id=AitunnelProvider.id,
             description=entry.get("description") or "",
-            min_price=as_float(entry.get("min_price_per_image")),
-            max_price=as_float(entry.get("max_price_per_image")),
+            min_price=as_money(entry.get("min_price_per_image")),
+            max_price=as_money(entry.get("max_price_per_image")),
             resolutions=resolutions,
             aspect_ratios=aspect_ratios,
             qualities=qualities,
@@ -183,8 +183,8 @@ class AitunnelProvider(Provider):
         usage = payload.get("usage") or {}
         return GenerationResult(
             images=images,
-            cost_rub=as_float(usage.get("cost_rub")),
-            balance=as_float(usage.get("balance")),
+            cost_rub=as_money(usage.get("cost_rub")),
+            balance=as_money(usage.get("balance")),
             model=payload.get("model") or request.model,
         )
 
@@ -240,13 +240,13 @@ class AitunnelProvider(Provider):
         balance = payloads.get("balance") or {}
         key = payloads.get("key") or {}
         me = payloads.get("me") or {}
-        info.balance = as_float(balance.get("balance"))
+        info.balance = as_money(balance.get("balance"))
         info.email = me.get("email")
-        budget = as_float(balance.get("budget"))
+        budget = as_money(balance.get("budget"))
         if budget is not None:
             info.budget_remaining = budget
             if isinstance(key.get("budget"), dict):
-                info.budget_initial = as_float(key["budget"].get("initial"))
+                info.budget_initial = as_money(key["budget"].get("initial"))
         allowed = key.get("allowed_models")
         if allowed:
             info.limits["allowed_models"] = list(allowed)

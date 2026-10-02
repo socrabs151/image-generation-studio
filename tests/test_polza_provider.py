@@ -252,6 +252,28 @@ def test_several_images_run_one_task_each(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.cost_rub == pytest.approx(11.6)
 
 
+def test_a_batch_cost_is_stored_without_a_float_tail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The per-task costs are added up one float at a time.
+
+    Three images at 1.26 would be written to the history as 3.7800000000000002,
+    and the running total would stop matching the provider's balance.
+    """
+    provider = PolzaProvider("key")
+
+    def fake_post(url: str, body: dict, timeout: int) -> dict:
+        return {
+            "status": "completed",
+            "model": body["model"],
+            "data": {"b64_json": base64.b64encode(PNG).decode("ascii")},
+            "usage": {"cost_rub": 1.26},
+        }
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+    result = provider.generate(_request(n=3), timeout=1)
+
+    assert result.cost_rub == 3.78
+
+
 def test_several_images_shift_the_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = PolzaProvider("key")
     seeds: list[int | None] = []

@@ -13,6 +13,7 @@ import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from app.core.pricing import round_money
 from app.services.history_store import HistoryRecord
 
 EXPORT_COLUMNS = (
@@ -80,7 +81,7 @@ def summarize(records: Iterable[HistoryRecord]) -> HistoryTotals:
         succeeded=succeeded,
         failed=failed,
         images=images,
-        spent_rub=spent,
+        spent_rub=round_money(spent),
         unpriced=unpriced,
     )
 
@@ -95,7 +96,12 @@ def _group(records: Iterable[HistoryRecord], name_of) -> list[GroupTotal]:
         if record.cost_rub:
             bucket[2] += record.cost_rub
     return [
-        GroupTotal(name=name, attempts=data[0], images=data[1], spent_rub=data[2])
+        GroupTotal(
+            name=name,
+            attempts=data[0],
+            images=data[1],
+            spent_rub=round_money(data[2]),
+        )
         for name, data in buckets.items()
     ]
 

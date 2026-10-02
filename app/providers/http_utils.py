@@ -16,6 +16,7 @@ import requests
 
 from app import __version__
 from app.core.errors import ConfigError, InsufficientFundsError, ProviderError
+from app.core.pricing import round_money
 from app.providers.base import raise_for_status
 
 #: Built from the single version in ``app/__init__.py``; see there.
@@ -77,6 +78,11 @@ def as_float(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def as_money(value) -> float | None:
+    """Convert a ruble amount from a provider response to kopecks precision."""
+    return round_money(as_float(value))
 
 
 def as_int(value, default: int = 0) -> int:

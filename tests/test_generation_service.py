@@ -394,16 +394,17 @@ def test_one_unwritable_file_does_not_lose_the_rest_of_the_batch(
     monkeypatch.setattr(
         service._history, "add", lambda record, limit: recorded.append(record), raising=True
     )
-    real_write = Path.write_bytes
+    real_open = Path.open
     calls = {"n": 0}
 
-    def flaky_write(self: Path, data: bytes) -> int:
-        calls["n"] += 1
-        if calls["n"] == 3:
-            raise OSError(28, "No space left on device")
-        return real_write(self, data)
+    def flaky_open(self: Path, *args, **kwargs):
+        if args and args[0] == "xb":
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise OSError(28, "No space left on device")
+        return real_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "write_bytes", flaky_write)
+    monkeypatch.setattr(Path, "open", flaky_open)
 
     outcome = service.generate(
         _request(n=6), _model(max_n=6), save_dir=tmp_path, api_key="k"

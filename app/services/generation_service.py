@@ -7,6 +7,7 @@ must never be repeated silently, because each attempt spends real money.
 
 from __future__ import annotations
 
+import itertools
 import re
 import time
 from collections.abc import Callable
@@ -296,14 +297,24 @@ class GenerationService:
         for index, image in enumerate(result.images, 1):
             extension = _extension_for(image)
             suffix = f"_{index}" if len(result.images) > 1 else ""
-            path = save_dir / f"{stamp}_{model}{suffix}.{extension}"
-            try:
-                path.write_bytes(image.data)
-            except OSError as exc:
-                failed += 1
-                first_error = first_error or str(exc)
-                continue
-            paths.append(str(path))
+            stem = f"{stamp}_{model}{suffix}"
+            for attempt in itertools.count(1):
+                name = stem if attempt == 1 else f"{stem}_{attempt}"
+                path = save_dir / f"{name}.{extension}"
+                try:
+                    # "x" refuses to open a name that is already taken, so a
+                    # paid image is never silently overwritten by a second
+                    # generation of the same model within the same second.
+                    with path.open("xb") as handle:
+                        handle.write(image.data)
+                except FileExistsError:
+                    continue
+                except OSError as exc:
+                    failed += 1
+                    first_error = first_error or str(exc)
+                    break
+                paths.append(str(path))
+                break
         if not paths:
             raise OSError(f"no image could be saved: {first_error or 'unknown error'}")
         if failed:
