@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, QSize, Qt, QThreadPool
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import (
     QAction,
     QFontMetrics,
@@ -96,6 +96,10 @@ PLACEHOLDER_NO_MODELS = (
 
 class MainWindow(QMainWindow):
     """Application main window."""
+
+    #: Emitted after every entry is written to the history, so an open history
+    #: window can refresh itself instead of waiting to be closed and reopened.
+    history_changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -641,6 +645,7 @@ class MainWindow(QMainWindow):
                 on_repeat=self._history_repeat,
                 parent=self,
             )
+            self.history_changed.connect(self._history_window.reload)
         else:
             self._history_window.reload()
         self._history_window.show()
@@ -1012,8 +1017,12 @@ class MainWindow(QMainWindow):
         cost = format_money(outcome.result.cost_rub)
         self._update_session_spend(outcome.result.cost_rub)
         self.log.info(f"Done. Cost: {cost} ₽. Files saved: {len(outcome.file_paths)}.")
+        self.history_changed.emit()
 
     def _on_generation_failed(self, message: str) -> None:
+        # A failed or cancelled request still leaves a history entry, so the
+        # open window has to hear about it too.
+        self.history_changed.emit()
         if "cancelled" in message.lower():
             self.log.info("Generation cancelled.")
             return

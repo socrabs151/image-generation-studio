@@ -451,11 +451,18 @@ class ResultViewer(QWidget):
             self._clear()
 
     def set_error(self, message: str) -> None:
-        """Show an error message instead of results."""
-        self.set_images([])
+        """Show an error message, keeping any results already on screen.
+
+        A failed request must not make pictures the user has already paid for
+        disappear: the files are on disk and the grid stays usable. The message
+        sits above them, and only takes over the whole area when there is
+        nothing to keep.
+        """
+        if not self._images:
+            self.set_images([])
+            self._placeholder.setVisible(False)
         self._message.setText(message)
         self._message.setVisible(True)
-        self._placeholder.setVisible(False)
 
     def images(self) -> list[QPixmap]:
         """The currently displayed images, at grid resolution."""
