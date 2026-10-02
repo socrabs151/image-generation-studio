@@ -53,6 +53,7 @@ from app.providers.http_utils import (
     guess_media_type,
     parse_json,
 )
+from app.providers.passthrough import typed_passthrough
 
 API_ROOT = "https://polza.ai/api"
 CATALOG_URL = f"{API_ROOT}/v1/models/catalog"
@@ -272,9 +273,11 @@ class PolzaProvider(Provider):
                 {"type": "base64", "data": encode_base64(reference)}
                 for reference in request.input_references
             ]
-        body: dict = {"model": request.model, "input": image_input, "async": False}
-        body.update(request.passthrough)
-        return body
+        # Extra parameters belong to the input object, not to the body root: in
+        # the root the aggregator does not see them, silently falls back to its
+        # own defaults and still charges for the request.
+        image_input.update(typed_passthrough(request.passthrough))
+        return {"model": request.model, "input": image_input, "async": False}
 
     def _post(self, url: str, body: dict, timeout: int) -> dict:
         try:

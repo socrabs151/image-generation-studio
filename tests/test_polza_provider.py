@@ -207,10 +207,48 @@ def test_build_payload_uses_catalog_parameter_names() -> None:
 
 
 def test_build_payload_merges_passthrough() -> None:
+    """Extra parameters belong to the input object.
+
+    In the body root the aggregator does not see them: it falls back to its own
+    defaults and still charges for the request. For `topaz/image-upscale` the app
+    makes the user fill in `upscale_factor`, so this is a paid request with an
+    ignored parameter.
+    """
     request = _request(passthrough={"isEnhance": True})
     body = PolzaProvider._build_payload(request)
 
-    assert body["isEnhance"] is True
+    assert body["input"]["isEnhance"] is True
+    assert "isEnhance" not in body
+
+
+def test_build_payload_keeps_the_body_clean() -> None:
+    request = _request(passthrough={"upscale_factor": "2", "guidance_scale": "7.5"})
+    body = PolzaProvider._build_payload(request)
+
+    assert set(body) == {"model", "input", "async"}
+    assert body["input"]["upscale_factor"] == "2"
+    assert body["input"]["guidance_scale"] == 7.5
+
+
+def test_build_payload_casts_the_documented_types() -> None:
+    """Numbers and booleans have to arrive as numbers and booleans."""
+    request = _request(
+        passthrough={
+            "isEnhance": "true",
+            "enable_safety_checker": "no",
+            "guidance_scale": "2.5",
+            "strength": "0,8",
+        }
+    )
+    body = PolzaProvider._build_payload(request)
+    values = body["input"]
+
+    assert values["isEnhance"] is True
+    assert values["enable_safety_checker"] is False
+    assert values["guidance_scale"] == 2.5
+    assert values["strength"] == 0.8
+    assert isinstance(values["guidance_scale"], float)
+    assert not isinstance(values["isEnhance"], str)
 
 
 def test_build_payload_encodes_references_as_base64() -> None:
