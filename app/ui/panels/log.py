@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from app.logging_setup import add_handler, file_logger
@@ -53,7 +54,7 @@ def _mirror_to_file(level: str, message: str) -> None:
 class LogPanel(QFrame):
     """Read-only message log with a clear button."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("panel")
         layout = QVBoxLayout(self)

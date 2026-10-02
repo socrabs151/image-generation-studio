@@ -27,12 +27,17 @@ def _source(relative: str) -> str:
     return (APP_DIR.parent / relative).read_text(encoding="utf-8")
 
 
+BUTTON_FACTORIES = ("_link_button(", "_plain_button(")
+
+
 def _button_block(text: str, label: str) -> str:
     """The lines that build one button, together with its tooltip."""
     start = text.find(f'"{label}"')
     assert start >= 0, f"{label} not found"
-    call = text.rfind("self._link_button(", 0, start)
-    if call >= 0:
+    for factory in BUTTON_FACTORIES:
+        call = text.rfind(f"self.{factory}", 0, start)
+        if call < 0:
+            continue
         end = text.find(")", call)
         arguments = text[call : end + 1] if end > start else ""
         # label, slot, tooltip
@@ -44,14 +49,18 @@ def _button_block(text: str, label: str) -> str:
 def _has_tooltip(block: str) -> bool:
     """Whether the block actually gives the button a tooltip.
 
-    ``_link_button(label, slot, tooltip)`` sets one in its body, so a call with
-    a third argument counts. Falling back to a fixed window used to satisfy this
-    check with an unrelated tooltip further up the file, which broke on any
-    rewording of a neighbouring string.
+    The factories take the tooltip as their third argument and set it in their
+    body, so a call with a third argument counts. Falling back to a fixed window
+    used to satisfy this check with an unrelated tooltip further up the file,
+    which broke on any rewording of a neighbouring string.
     """
     if "setToolTip" in block or "toolTip=" in block:
         return True
-    return block.lstrip().startswith("self._link_button(") and block.count(",") >= 2
+    stripped = block.lstrip()
+    return any(
+        stripped.startswith(f"self.{factory}") and block.count(",") >= 2
+        for factory in BUTTON_FACTORIES
+    )
 
 
 def test_every_main_button_has_a_tooltip() -> None:

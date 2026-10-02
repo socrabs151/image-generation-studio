@@ -63,7 +63,7 @@ class HistoryWindow(QMainWindow):
         history: HistoryStore,
         on_use: Callable[[HistoryRecord], None] | None = None,
         on_repeat: Callable[[HistoryRecord], None] | None = None,
-        parent=None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Generation history")
@@ -385,7 +385,7 @@ class HistoryWindow(QMainWindow):
     def _clear_thumbnails(self) -> None:
         while self._thumbs_row.count() > 1:
             item = self._thumbs_row.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 # Hide it, then delete: setParent(None) would turn the widget into
                 # a separate window for a moment, and leaving it visible would
@@ -455,7 +455,7 @@ class HistoryWindow(QMainWindow):
         if record is not None and self._on_repeat is not None:
             self._on_repeat(record)
 
-    def _open_file(self, *_args) -> None:
+    def _open_file(self, *_args: object) -> None:
         record = self.selected_record()
         if record is None or not record.file_paths:
             return

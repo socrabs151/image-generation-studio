@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QSize, Qt, Signal
+from PySide6.QtGui import QMouseEvent, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -46,7 +46,7 @@ class ZoomableView(QWidget):
     scaleChanged = Signal(float)  # effective scale, 1.0 == 100%
     panningChanged = Signal(bool)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._images: list[QPixmap] = []
         self._index = 0
@@ -271,14 +271,14 @@ class ZoomableView(QWidget):
         self._scroll.setHorizontalScrollBarPolicy(policy)
         self._scroll.setVerticalScrollBarPolicy(policy)
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
         # In fit mode the image follows the window size.
         if self.is_fit and self.current_pixmap() is not None:
             self._render()
 
     # ---------- interaction ----------
-    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 - Qt API
         if self.current_pixmap() is None:
             return
         steps = event.angleDelta().y() / 120.0
@@ -291,13 +291,13 @@ class ZoomableView(QWidget):
         self._zoom_by(factor, anchor)
         event.accept()
 
-    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
-        if watched is self._canvas and event.type() == QEvent.Type.Wheel:
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+        if isinstance(event, QWheelEvent) and watched is self._canvas:
             self.wheelEvent(event)
             return True
         return super().eventFilter(watched, event)
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_at = event.position().toPoint()
             self._drag_scroll = QPoint(
@@ -308,7 +308,7 @@ class ZoomableView(QWidget):
             self.panningChanged.emit(True)
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
         if self._drag_at is None or self._drag_scroll is None:
             super().mouseMoveEvent(event)
             return
@@ -316,7 +316,7 @@ class ZoomableView(QWidget):
         self._scroll.horizontalScrollBar().setValue(self._drag_scroll.x() - delta.x())
         self._scroll.verticalScrollBar().setValue(self._drag_scroll.y() - delta.y())
 
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
         if self._drag_at is not None:
             self._drag_at = None
             self._drag_scroll = None
@@ -324,7 +324,7 @@ class ZoomableView(QWidget):
             self.panningChanged.emit(False)
         super().mouseReleaseEvent(event)
 
-    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
         # Double click is the usual shortcut between "fit" and "real size".
         if self.is_fit:
             self.zoom_actual()
@@ -356,7 +356,9 @@ class Thumbnail(QLabel):
 
     activated = Signal(int)
 
-    def __init__(self, index: int, pixmap: QPixmap, parent=None) -> None:
+    def __init__(
+        self, index: int, pixmap: QPixmap, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._index = index
         self.setObjectName("resultThumb")
@@ -373,7 +375,7 @@ class Thumbnail(QLabel):
             )
         )
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
         if event.button() == Qt.MouseButton.LeftButton:
             self.activated.emit(self._index)
         super().mousePressEvent(event)
@@ -384,7 +386,7 @@ class ResultViewer(QWidget):
 
     imageActivated = Signal(int)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._images: list[QPixmap] = []
         self._paths: list[str] = []
@@ -493,7 +495,7 @@ class ResultViewer(QWidget):
             return self._paths[index]
         return ""
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
         self._sync_columns()
 
@@ -520,7 +522,7 @@ class ResultViewer(QWidget):
     def _clear(self) -> None:
         while self._grid.count():
             item = self._grid.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 # Hide it, then delete: setParent(None) would turn the widget into
                 # a separate window for a moment, and leaving it visible would

@@ -3,7 +3,8 @@
 The decision itself is plain data, so it lives here and can be tested on a
 machine without a display server: the test suite must never import PySide6,
 because the CI runner has no ``libEGL``. The Qt-facing half stays in the UI
-layer and only reports the class name and one flag.
+layer and only reports the class name and one flag; that half lives in
+:mod:`app.ui.focus_widgets`.
 """
 
 from __future__ import annotations

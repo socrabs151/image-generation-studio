@@ -32,7 +32,7 @@ from app.services.settings_store import ProviderSettings, Settings
 class SettingsDialog(QDialog):
     """Edit application settings."""
 
-    def __init__(self, settings: Settings, parent=None) -> None:
+    def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumWidth(620)

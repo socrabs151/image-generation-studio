@@ -185,7 +185,7 @@ def _as_bool(value: object, fallback: bool) -> bool:
 
 def _as_int(value: object, fallback: int) -> int:
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)  # type: ignore[call-overload, no-any-return]
     except (TypeError, ValueError):
         return fallback
 

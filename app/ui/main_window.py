@@ -7,14 +7,28 @@ responsive. Generation is never retried automatically.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, QSize, Qt, QThreadPool, Signal
+from PySide6.QtCore import (
+    QBuffer,
+    QEvent,
+    QIODevice,
+    QObject,
+    QSize,
+    Qt,
+    QThreadPool,
+    Signal,
+)
 from PySide6.QtGui import (
     QAction,
+    QCloseEvent,
     QFontMetrics,
     QGuiApplication,
     QIcon,
+    QImage,
+    QKeyEvent,
     QKeySequence,
     QShortcut,
 )
@@ -50,7 +64,7 @@ from app.ui.dialogs.docs import DocsWindow
 from app.ui.dialogs.history import HistoryWindow, repeat_request
 from app.ui.dialogs.image_viewer import ImageViewerWindow
 from app.ui.dialogs.settings import SettingsDialog
-from app.ui.focus_rules import is_text_input
+from app.ui.focus_widgets import focus_is_text_input
 from app.ui.icons import BUTTON_ICON_SIZE, LIST_ICON_SIZE, favourite_icon
 from app.ui.model_list import (
     combo_label,
@@ -71,16 +85,15 @@ from app.workers import FunctionWorker
 LOGGER = get_logger()
 
 
-def _is_text_input(widget: QWidget | None) -> bool:
-    """Whether the focused widget handles a text paste itself.
 
-    The decision rules live in :mod:`app.ui.focus_rules` so that they can be
-    tested without a display server.
+def _save_png(image: QImage, buffer: QBuffer) -> bool:
+    """Write an image into an open buffer as PNG.
+
+    PySide6 takes a QBuffer at runtime, but the stubs only describe a file name
+    or a device plus a format, so the cast is stated once here instead of at
+    every call site.
     """
-    if widget is None:
-        return False
-    editable_combo = isinstance(widget, QComboBox) and widget.isEditable()
-    return is_text_input(type(widget).__name__, editable_combo=editable_combo)
+    return bool(image.save(buffer, "PNG"))  # type: ignore[call-overload]
 
 
 MODEL_COMBO_TOOLTIP = (
@@ -252,17 +265,17 @@ class MainWindow(QMainWindow):
             )
         )
         row.addWidget(
-            QPushButton(
+            self._plain_button(
                 "Settings",
-                clicked=self.open_settings,
-                toolTip="API keys, the default model, the save folder and the limits",
+                self.open_settings,
+                "API keys, the default model, the save folder and the limits",
             )
         )
         row.addWidget(
-            QPushButton(
+            self._plain_button(
                 "History",
-                clicked=self.open_history,
-                toolTip="Past generations with their cost, parameters and results",
+                self.open_history,
+                "Past generations with their cost, parameters and results",
             )
         )
         return bar
@@ -367,7 +380,22 @@ class MainWindow(QMainWindow):
         return bar
 
     @staticmethod
-    def _link_button(text: str, slot, tool_tip: str = "") -> QPushButton:
+    @staticmethod
+    def _plain_button(text: str, slot: Callable[[], None], tool_tip: str) -> QPushButton:
+        """A button with a tooltip.
+
+        The keyword form (``QPushButton(text, clicked=..., toolTip=...)``) works
+        at runtime but is not in the stubs, and the explicit calls read the same.
+        """
+        button = QPushButton(text)
+        button.setToolTip(tool_tip)
+        button.clicked.connect(slot)
+        return button
+
+    @staticmethod
+    def _link_button(
+        text: str, slot: Callable[[], None], tool_tip: str = ""
+    ) -> QPushButton:
         button = QPushButton(text)
         button.setObjectName("link")
         button.setFlat(True)
@@ -406,11 +434,16 @@ class MainWindow(QMainWindow):
         # Ctrl+V is handled as a key event rather than a window shortcut: a shortcut
         # would either lose the text fields or never fire, while the owner wants the
         # image to go into the references whenever no text field has the focus.
-        QApplication.instance().installEventFilter(self)
+        instance = QApplication.instance()
+        if instance is not None:
+            instance.installEventFilter(self)
 
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+        # The base class takes any QEvent, so the narrowing happens here rather
+        # than in the signature.
         if (
-            event.type() == QEvent.Type.KeyPress
+            isinstance(event, QKeyEvent)
+            and event.type() == QEvent.Type.KeyPress
             and event.key() == Qt.Key.Key_V
             and event.modifiers() & Qt.KeyboardModifier.ControlModifier
             and self._paste_applies(obj)
@@ -419,11 +452,11 @@ class MainWindow(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
-    def _paste_applies(self, obj) -> bool:
+    def _paste_applies(self, obj: object) -> bool:
         """Whether this Ctrl+V belongs to the workspace rather than to a text field."""
         if not isinstance(obj, QWidget) or not self.isAncestorOf(obj):
             return False
-        return not _is_text_input(QApplication.focusWidget())
+        return not focus_is_text_input(QApplication.focusWidget())
 
     # ---------- actions ----------
     def refresh_catalog(self) -> None:
@@ -565,8 +598,9 @@ class MainWindow(QMainWindow):
         if not image.isNull():
             buffer = QBuffer()
             buffer.open(QIODevice.OpenModeFlag.ReadWrite)
-            image.save(buffer, "PNG")
-            if self.workspace.reference.add_from_bytes(bytes(buffer.data())):
+            _save_png(image, buffer)
+            data = bytes(buffer.data())  # type: ignore[call-overload]
+            if self.workspace.reference.add_from_bytes(data):
                 self.log.info("Reference pasted from the clipboard.")
             self._warn_if_too_many_references()
             return
@@ -750,7 +784,13 @@ class MainWindow(QMainWindow):
         return True
 
     def _run(
-        self, function, *args, on_done, on_fail, is_generation: bool = False, **kwargs
+        self,
+        function: Callable[..., object],
+        *args: object,
+        on_done: Callable[[Any], None],
+        on_fail: Callable[[str], None],
+        is_generation: bool = False,
+        **kwargs: object,
     ) -> None:
         """Start one background task, taking the shared worker slot."""
         worker = FunctionWorker(function, *args, **kwargs)
@@ -763,7 +803,7 @@ class MainWindow(QMainWindow):
         self._worker = worker
         self._pool.start(worker)
 
-    def _clear_worker(self, *_args) -> None:
+    def _clear_worker(self, *_args: object) -> None:
         """Release the worker slot after a task.
 
         Only a finished or failed generation re-enables Generate. A helper
@@ -780,7 +820,7 @@ class MainWindow(QMainWindow):
         source = "cache" if result.from_cache else "network"
         self.log.info(f"Catalog loaded: {len(self._models)} models ({source}).")
         if self._models:
-            wanted = self._pending_restore.model_id if self._pending_restore else None
+            wanted = self._pending_restore.model if self._pending_restore else None
             wanted = wanted or self._pending_recent or self._settings.default_model
             self._pending_recent = None
             if not self._select_model(wanted, quiet=True):
@@ -1197,7 +1237,10 @@ class MainWindow(QMainWindow):
         )
 
     def _apply_theme(self, theme: str) -> None:
-        applied = apply_theme(QGuiApplication.instance(), theme)
+        # QGuiApplication.instance() is typed as QCoreApplication, but the
+        # application object is the QApplication created in main().
+        instance = QGuiApplication.instance()
+        applied = apply_theme(instance, theme) if isinstance(instance, QApplication) else theme
         self._settings.theme = applied
         # The star icons are coloured per theme, so they have to be reloaded.
         # Only the marks are repainted: refilling the list would rebuild the
@@ -1218,7 +1261,7 @@ class MainWindow(QMainWindow):
         self.log.warning("No API key set. Open Settings and add a key.")
         QMessageBox.information(self, "API key required", "Add an API key in Settings.")
 
-    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API
         # Cancel the running task and wait for the pool, so no signal is delivered
         # to this window after it is destroyed.
         if self._worker is not None:

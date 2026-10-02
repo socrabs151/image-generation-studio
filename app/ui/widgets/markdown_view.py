@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import html
 
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QTextBrowser
+from PySide6.QtWidgets import QTextBrowser, QWidget
 
 from app.ui.markdown import ERROR_COLOR, LIGHT_COLORS, THEME_COLORS, render_markdown
 
@@ -16,7 +17,7 @@ from app.ui.markdown import ERROR_COLOR, LIGHT_COLORS, THEME_COLORS, render_mark
 class MarkdownView(QTextBrowser):
     """Markdown document rendered as themed rich text."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setReadOnly(True)
         self.setOpenLinks(False)
@@ -65,6 +66,6 @@ class MarkdownView(QTextBrowser):
         )
 
     @staticmethod
-    def _open_link(url) -> None:
+    def _open_link(url: QUrl) -> None:
         if url.scheme() in ("http", "https", "mailto"):
             QDesktopServices.openUrl(url)

@@ -99,7 +99,9 @@ def test_only_the_version_file_carries_a_version_literal(relative: str) -> None:
         return
     # Drop the dependency declarations, then look for what is left.
     without_pins = re.sub(r">=\s*\d+(\.\d+)*", ">=", text)
-    found = re.findall(r'"\d+\.\d+(\.\d+)?"', without_pins)
+    # The minimum Python version is not the version of the application.
+    without_python = re.sub(r'python_version\s*=\s*"\d+\.\d+(\.\d+)?"', "", without_pins)
+    found = re.findall(r'"\d+\.\d+(\.\d+)?"', without_python)
     assert not found, (
         f"{relative} mentions {found}; only {VERSION_FILE} may name a version"
     )

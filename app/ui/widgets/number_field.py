@@ -29,7 +29,11 @@ class NumberField(QFrame):
     valueChanged = Signal(int)
 
     def __init__(
-        self, minimum: int = 1, maximum: int = 10, value: int = 1, parent=None
+        self,
+        minimum: int = 1,
+        maximum: int = 10,
+        value: int = 1,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._min = minimum

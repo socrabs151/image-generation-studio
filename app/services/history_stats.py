@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from app.core.pricing import round_money
@@ -61,6 +61,15 @@ class GroupTotal:
     spent_rub: float
 
 
+@dataclass(slots=True)
+class _Bucket:
+    """Running totals while grouping; three numbers of different kinds."""
+
+    attempts: int = 0
+    images: int = 0
+    spent: float = 0.0
+
+
 def summarize(records: Iterable[HistoryRecord]) -> HistoryTotals:
     """Total spend, counts and image number over ``records``."""
     attempts = succeeded = failed = images = unpriced = 0
@@ -86,23 +95,24 @@ def summarize(records: Iterable[HistoryRecord]) -> HistoryTotals:
     )
 
 
-def _group(records: Iterable[HistoryRecord], name_of) -> list[GroupTotal]:
-    buckets: dict[str, list[int]] = {}
+def _group(
+        records: Iterable[HistoryRecord], name_of: Callable[[HistoryRecord], str]
+    ) -> list[GroupTotal]:
+    buckets: dict[str, _Bucket] = {}
     for record in records:
-        name = name_of(record) or "(unknown)"
-        bucket = buckets.setdefault(name, [0, 0, 0.0])
-        bucket[0] += 1
-        bucket[1] += len(record.file_paths) if record.status == "ok" else 0
+        bucket = buckets.setdefault(name_of(record) or "(unknown)", _Bucket())
+        bucket.attempts += 1
+        bucket.images += len(record.file_paths) if record.status == "ok" else 0
         if record.cost_rub:
-            bucket[2] += record.cost_rub
+            bucket.spent += record.cost_rub
     return [
         GroupTotal(
             name=name,
-            attempts=data[0],
-            images=data[1],
-            spent_rub=round_money(data[2]),
+            attempts=bucket.attempts,
+            images=bucket.images,
+            spent_rub=round_money(bucket.spent),
         )
-        for name, data in buckets.items()
+        for name, bucket in buckets.items()
     ]
 
 

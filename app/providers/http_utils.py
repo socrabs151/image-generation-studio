@@ -70,27 +70,35 @@ def decode_base64(encoded: str) -> bytes:
         raise ProviderError(f"The aggregator returned an undecodable image: {exc}") from exc
 
 
-def as_float(value) -> float | None:
+def as_float(value: object) -> float | None:
     """Convert a value to float, returning ``None`` for empty or invalid input."""
     if value is None or value == "":
         return None
-    try:
+    if isinstance(value, bool):
         return float(value)
-    except (TypeError, ValueError):
-        return None
+    if isinstance(value, (int, float, str)):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
-def as_money(value) -> float | None:
+def as_money(value: object) -> float | None:
     """Convert a ruble amount from a provider response to kopecks precision."""
     return round_money(as_float(value))
 
 
-def as_int(value, default: int = 0) -> int:
+def as_int(value: object, default: int = 0) -> int:
     """Convert a value to int, falling back to ``default`` for invalid input."""
-    try:
+    if isinstance(value, bool):
         return int(value)
-    except (TypeError, ValueError):
-        return default
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def parse_json(response: requests.Response) -> dict:

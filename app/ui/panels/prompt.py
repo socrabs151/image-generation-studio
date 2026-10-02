@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 
@@ -20,7 +21,7 @@ class PromptPanel(QFrame):
     stopRequested = Signal()
     clearRequested = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("panel")
         layout = QVBoxLayout(self)

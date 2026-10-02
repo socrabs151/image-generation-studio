@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, Qt, Signal
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QImage, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -46,7 +46,7 @@ class ReferencePanel(QWidget):
     fileRejected = Signal(str)
     dropped = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("dropArea")
         self.setAcceptDrops(True)
@@ -148,7 +148,7 @@ class ReferencePanel(QWidget):
         """Rebuild the thumbnail strip and the counter."""
         while self._strip.count():
             item = self._strip.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 # Hide it, then delete: setParent(None) would turn the thumbnail
                 # into a separate window for a moment, and leaving it visible
@@ -193,11 +193,11 @@ class ReferencePanel(QWidget):
         return holder
 
     # ---------- drag & drop ----------
-    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 - Qt API
         if event.mimeData().hasUrls() or event.mimeData().hasImage():
             event.acceptProposedAction()
 
-    def dropEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802 - Qt API
         mime = event.mimeData()
         if mime.hasUrls():
             for url in mime.urls():
@@ -215,7 +215,8 @@ class ReferencePanel(QWidget):
                 buffer = QBuffer()
                 buffer.open(QIODevice.OpenModeFlag.WriteOnly)
                 if image.save(buffer, "PNG"):
-                    self.add_from_bytes(bytes(buffer.data()))
+                    raw = bytes(buffer.data())  # type: ignore[call-overload]
+                    self.add_from_bytes(raw)
         self.dropped.emit()
         event.acceptProposedAction()
 
@@ -228,7 +229,7 @@ class WorkspacePanel(QFrame):
     pasteRequested = Signal()
     clearRequested = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("panel")
         layout = QVBoxLayout(self)

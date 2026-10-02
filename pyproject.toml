@@ -19,6 +19,12 @@ dependencies = [
 dev = [
     "ruff>=0.6",
     "pytest>=8.0",
+    # Checked with the 2.x line; the lower bound keeps CI on the generation the
+    # code was cleaned against, so a new major does not turn the build red.
+    "mypy>=2.0",
+    # Type information for the two libraries that ship none.
+    "types-requests>=2.32",
+    "types-Pygments>=2.18",
 ]
 
 [build-system]
@@ -41,6 +47,29 @@ exclude = ["references", ".venv", "build", "dist"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B"]
+
+# ---------------------------------------------------------------------------
+# Проверка типов
+# ---------------------------------------------------------------------------
+[tool.mypy]
+files = ["app"]
+python_version = "3.11"
+# The code is annotated everywhere, so the check is strict about keeping it that
+# way: a function that loses its annotations would otherwise pass quietly.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_return_any = true
+# A `type: ignore` that no longer suppresses anything is a leftover from a fixed
+# bug, and it would hide the next one.
+warn_unused_ignores = true
+strict_equality = true
+# Only `app` is checked. The tests deliberately feed malformed data to the
+# stores to see how they survive it, which these settings would report as false
+# alarms.
+exclude = ["^references/", "^build/", "^dist/"]
 
 # ---------------------------------------------------------------------------
 # Тесты

@@ -14,6 +14,12 @@ import getpass
 import hashlib
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # The Qt imports stay inside the functions so that this module can be read
+    # without a Qt installation; the tests use that to check the logic.
+    from PySide6.QtNetwork import QLocalSocket
 
 RAISE_COMMAND = b"raise"
 
@@ -67,7 +73,7 @@ def _qt_listen(name: str, on_activate: Callable[[], None]) -> object | None:
     # A socket left behind by a crashed process would block us forever.
     QLocalServer.removeServer(name)
     server = QLocalServer()
-    server.setSocketOptions(QLocalServer.UserAccessOption)
+    server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
     if not server.listen(name):
         return None
 
@@ -82,8 +88,8 @@ def _qt_listen(name: str, on_activate: Callable[[], None]) -> object | None:
     return server
 
 
-def _consume(connection: object, on_activate: Callable[[], None]) -> None:
-    data = connection.readAll().data()
+def _consume(connection: QLocalSocket, on_activate: Callable[[], None]) -> None:
+    data = bytes(connection.readAll().data())
     if RAISE_COMMAND in data:
         on_activate()
 

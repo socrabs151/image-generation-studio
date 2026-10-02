@@ -37,7 +37,9 @@ _PATH_ROLE = Qt.ItemDataRole.UserRole
 class DocsViewer(QWidget):
     """Tree of aggregators plus a Markdown viewer."""
 
-    def __init__(self, docs_dir: Path | None = None, parent=None) -> None:
+    def __init__(
+        self, docs_dir: Path | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._docs_dir = Path(docs_dir) if docs_dir else DOCS_DIR
         self._pool = QThreadPool.globalInstance()
@@ -154,7 +156,7 @@ class DocsViewer(QWidget):
             self._worker.cancel()
             self._subtitle.setText("Stopping the download…")
 
-    def _clear_worker(self, *_args) -> None:
+    def _clear_worker(self, *_args: object) -> None:
         self._worker = None
         for button in self._load_buttons.values():
             button.setEnabled(True)
@@ -214,7 +216,9 @@ class DocsViewer(QWidget):
         self.viewer.set_theme(theme)
 
     # ---------- viewer ----------
-    def _show_selected(self, current: QTreeWidgetItem | None, _previous=None) -> None:
+    def _show_selected(
+        self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None = None
+    ) -> None:
         raw = current.data(0, _PATH_ROLE) if current else None
         if not raw:
             return
@@ -236,7 +240,12 @@ class DocsViewer(QWidget):
 class DocsWindow(QMainWindow):
     """Standalone documentation window."""
 
-    def __init__(self, docs_dir: Path | None = None, theme: str = "light", parent=None) -> None:
+    def __init__(
+        self,
+        docs_dir: Path | None = None,
+        theme: str = "light",
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Aggregator documentation")
         self.resize(1150, 760)

@@ -101,13 +101,14 @@ class PolzaProvider(Provider):
     def fetch_catalog(self, timeout: int = 60) -> list[ModelInfo]:
         """Load the image-model catalog (no API key required)."""
         try:
+            query: dict[str, str | int] = {
+                "type": "image",
+                "include_providers": "true",
+                "limit": CATALOG_PAGE_SIZE,
+            }
             response = requests.get(
                 CATALOG_URL,
-                params={
-                    "type": "image",
-                    "include_providers": "true",
-                    "limit": CATALOG_PAGE_SIZE,
-                },
+                params=query,
                 headers={"User-Agent": USER_AGENT},
                 timeout=timeout,
             )
@@ -315,7 +316,7 @@ class PolzaProvider(Provider):
         while True:
             if cancel_check is not None and cancel_check():
                 raise CancelledError()
-            payload = self._get(f"{MEDIA_URL}/{media_id}", timeout=POLL_INTERVAL * 4)
+            payload = self._get(f"{MEDIA_URL}/{media_id}", timeout=int(POLL_INTERVAL * 4))
             status = str(payload.get("status") or "")
             if status == "completed":
                 return payload
@@ -423,7 +424,7 @@ def _required(parameters: dict) -> list[str]:
     return sorted(names)
 
 
-def _price_range(pricing) -> tuple[float | None, float | None]:
+def _price_range(pricing: object) -> tuple[float | None, float | None]:
     """Derive a per-image price range from a Polza.ai pricing block.
 
     Tiered pricing (for example ``image_resolution=2K`` costs more) becomes a range;

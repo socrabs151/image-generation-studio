@@ -41,6 +41,9 @@ jobs:
       - name: Линтер (ruff)
         run: ruff check .
 
+      - name: Типы (mypy)
+        run: mypy
+
       - name: Тесты (pytest)
         run: pytest -q
 

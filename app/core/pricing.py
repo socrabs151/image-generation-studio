@@ -7,8 +7,18 @@ and refunds the difference afterwards.
 
 from __future__ import annotations
 
+from typing import overload
+
 MONEY_PLACEHOLDER = "—"
 MONEY_PLACES = 2
+
+
+@overload
+def round_money(value: float) -> float: ...
+
+
+@overload
+def round_money(value: None) -> None: ...
 
 
 def round_money(value: float | None) -> float | None:

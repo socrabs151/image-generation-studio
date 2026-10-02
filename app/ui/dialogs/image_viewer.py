@@ -8,10 +8,18 @@ real size, ``F11`` toggles full screen, ``Esc`` closes.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QImage, QPixmap
+from PySide6.QtGui import (
+    QDesktopServices,
+    QGuiApplication,
+    QImage,
+    QKeyEvent,
+    QPixmap,
+    QShowEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -26,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.focus_rules import is_text_input as _is_text_input
+from app.ui.focus_widgets import focus_is_text_input
 from app.ui.widgets.result_viewer import ZoomableView
 
 _FILM_THUMB = 56
@@ -67,7 +75,7 @@ class _Filmstrip(QScrollArea):
 
     picked = Signal(int)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("filmScroll")
         self.setWidgetResizable(True)
@@ -116,7 +124,7 @@ class _Filmstrip(QScrollArea):
         for position, button in enumerate(self._buttons):
             button.setChecked(position == index)
 
-    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - Qt API
         super().showEvent(event)
         if self._buttons:
             self.ensureWidgetVisible(self._buttons[0])
@@ -130,7 +138,7 @@ class ImageViewerWindow(QMainWindow):
         images: list[QPixmap],
         index: int = 0,
         paths: list[str] | None = None,
-        parent=None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._paths = list(paths) if paths else []
@@ -210,7 +218,7 @@ class ImageViewerWindow(QMainWindow):
         self._open_folder = self._button(
             "Open folder", self._open_folder_action, "Show the file in its folder"
         )
-        self._copy = self._button("Copy", self._copy, "Copy the image (Ctrl+C)")
+        self._copy = self._button("Copy", self._copy_action, "Copy the image (Ctrl+C)")
         self._save = self._button("Save as…", self._save_as, "Save the image (Ctrl+S)")
 
         actions = QHBoxLayout()
@@ -229,7 +237,9 @@ class ImageViewerWindow(QMainWindow):
         layout.addLayout(actions)
         self.filmstrip.setVisible(self.viewer.count() > 1)
 
-    def _button(self, text: str, slot, tip: str = "") -> QPushButton:
+    def _button(
+        self, text: str, slot: Callable[[], None], tip: str = ""
+    ) -> QPushButton:
         button = QPushButton(text)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         if tip:
@@ -349,7 +359,7 @@ class ImageViewerWindow(QMainWindow):
             return
         self._set_status(f"Saved to {Path(path).name}")
 
-    def _copy(self) -> None:
+    def _copy_action(self) -> None:
         pixmap = self.viewer.current_pixmap()
         if pixmap is None:
             return
@@ -363,17 +373,17 @@ class ImageViewerWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
     # ---------- keyboard ----------
-    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt API
         key = event.key()
         modifiers = event.modifiers()
         control = modifiers & Qt.KeyboardModifier.ControlModifier
 
         if control and key == Qt.Key.Key_S:
             self._save_as()
-        elif control and key == Qt.Key.Key_C and not _is_text_input(
+        elif control and key == Qt.Key.Key_C and not focus_is_text_input(
             QApplication.focusWidget()
         ):
-            self._copy()
+            self._copy_action()
         elif key == Qt.Key.Key_Escape:
             self.close()
         elif key == Qt.Key.Key_F11:

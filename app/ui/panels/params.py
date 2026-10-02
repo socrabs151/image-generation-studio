@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from app.core.models import ModelInfo
@@ -40,7 +41,7 @@ class ParamsPanel(QFrame):
     #: Emitted whenever a value changes, so the window can refresh the estimate.
     changed = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("panel")
         layout = QVBoxLayout(self)

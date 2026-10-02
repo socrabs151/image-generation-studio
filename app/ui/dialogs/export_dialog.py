@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -31,7 +32,9 @@ FORMATS = {
 class ExportDialog(QDialog):
     """Choose the export format and the destination file."""
 
-    def __init__(self, suggested_name: str = "history", parent=None) -> None:
+    def __init__(
+        self, suggested_name: str = "history", parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Export history")
         self.setMinimumWidth(460)
@@ -105,7 +108,7 @@ class ExportDialog(QDialog):
             self.path_edit.setText(chosen)
 
 
-def _wrap(layout) -> QWidget:
+def _wrap(layout: QBoxLayout) -> QWidget:
     container = QWidget()
     container.setLayout(layout)
     return container

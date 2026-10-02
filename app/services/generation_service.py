@@ -277,7 +277,7 @@ class GenerationService:
                 cost_rub=result.cost_rub,
                 file_paths=file_paths,
                 status="error" if save_error else "ok",
-                error=save_error,
+                error=save_error or "",
                 request=snapshot,
                 duration_seconds=time.monotonic() - started,
             ),

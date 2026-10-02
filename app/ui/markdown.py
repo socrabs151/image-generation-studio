@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from markdown_it import MarkdownIt
 from pygments import highlight as pygments_highlight
 from pygments.formatters import HtmlFormatter
+from pygments.lexer import Lexer
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.style import Style
 from pygments.token import Comment, Keyword, Name, Number, Operator, String, Token
@@ -180,7 +181,7 @@ THEME_COLORS = {"light": LIGHT_COLORS, "dark": DARK_COLORS}
 ERROR_COLOR = {"light": "#d93636", "dark": "#f87171"}
 
 
-def _lexer_for(code: str, language: str):
+def _lexer_for(code: str, language: str) -> Lexer | None:
     """Find a Pygments lexer for a code block, guessing when the hint is useless."""
     name = (language or "").strip()
     if name.lower() not in _NO_LANGUAGE:
