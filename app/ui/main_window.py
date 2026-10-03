@@ -217,11 +217,11 @@ class MainWindow(QMainWindow):
         self.workspace.loadRequested.connect(self._load_reference)
         self.workspace.pasteRequested.connect(self._paste_reference)
         self.workspace.clearRequested.connect(self.workspace.reference.clear)
+        self.workspace.reference.referencesLoaded.connect(self._on_references_loaded)
         self.workspace.reference.referenceActivated.connect(self._open_reference_viewer)
         self.workspace.reference.fileRejected.connect(
             lambda name: self.log.error(f"Cannot read the image: {name}")
         )
-        self.workspace.reference.dropped.connect(self._warn_if_too_many_references)
         self.workspace.result_viewer.imageActivated.connect(self._open_result_viewer)
         self.prompt.generateRequested.connect(self.generate)
         self.prompt.stopRequested.connect(self._cancel_generation)
@@ -593,15 +593,7 @@ class MainWindow(QMainWindow):
         )
         if not paths:
             return
-        added = 0
-        for path in paths:
-            if self.workspace.reference.add_from_file(path):
-                added += 1
-            else:
-                self.log.error(f"Cannot read the image: {Path(path).name}")
-        if added:
-            self.log.info(f"Reference images loaded: {added}.")
-        self._warn_if_too_many_references()
+        self.workspace.reference.add_files(paths)
 
     def _paste_reference(self) -> None:
         """Add the clipboard image, or the copied image file, to the references.
@@ -618,9 +610,7 @@ class MainWindow(QMainWindow):
             buffer.open(QIODevice.OpenModeFlag.ReadWrite)
             _save_png(image, buffer)
             data = bytes(buffer.data())  # type: ignore[call-overload]
-            if self.workspace.reference.add_from_bytes(data):
-                self.log.info("Reference pasted from the clipboard.")
-            self._warn_if_too_many_references()
+            self.workspace.reference.add_data([data])
             return
 
         mime = clipboard.mimeData()
@@ -640,14 +630,16 @@ class MainWindow(QMainWindow):
                 "first."
             )
             return
-        added = 0
-        for path in paths:
-            if self.workspace.reference.add_from_file(path):
-                added += 1
-            else:
-                self.log.error(f"Cannot read the image: {Path(path).name}")
-        if added:
-            self.log.info(f"Reference pasted from the clipboard: {added} file(s).")
+        self.workspace.reference.add_files(paths)
+
+    def _on_references_loaded(self, count: int) -> None:
+        """Report a finished load and check the model's reference limit.
+
+        Both happen here rather than at the click: reading and decoding run in a
+        worker, so at the moment of the click nothing has been added yet and the
+        count would be the previous one.
+        """
+        self.log.info(f"Reference images loaded: {count}.")
         self._warn_if_too_many_references()
 
     def _warn_if_too_many_references(self) -> None:
@@ -751,14 +743,14 @@ class MainWindow(QMainWindow):
         if unknown:
             self.log.warning("No longer supported by the model: " + ", ".join(unknown))
         self.workspace.reference.clear()
-        restored = 0
-        for path in request.reference_paths:
-            if self.workspace.reference.add_from_file(path):
-                restored += 1
-        if restored:
-            self.log.info(f"Reference images restored: {restored}.")
-        elif request.reference_paths:
-            self.log.warning("The referenced images are no longer readable.")
+        paths = [path for path in request.reference_paths if Path(path).is_file()]
+        missing = len(request.reference_paths) - len(paths)
+        if paths:
+            self.workspace.reference.add_files(paths)
+        if missing:
+            self.log.warning(
+                f"{missing} of the referenced image(s) are no longer readable."
+            )
         self.log.info(
             "Parameters restored from the history. Nothing was generated — press "
             "Generate when the request looks right."
