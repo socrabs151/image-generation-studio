@@ -74,9 +74,13 @@ def test_build_payload_with_references() -> None:
     assert references[0]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
-def test_parameter_without_auto_is_treated_as_mandatory() -> None:
-    # AITUNNEL does not publish which parameters are mandatory; a value list without
-    # "auto" cannot be left out, otherwise the provider rejects the request.
+def test_a_value_list_without_auto_is_not_mandatory() -> None:
+    """The vendor's table marks every image parameter optional.
+
+    Only `model` and `prompt` are required, so a list without "auto" must not make
+    the panel preselect a value: `resolution` is exactly what decides the price, and
+    sending one the user never chose silently changed the amount.
+    """
     model = AitunnelProvider._parse_model(
         "gemini",
         {
@@ -87,7 +91,10 @@ def test_parameter_without_auto_is_treated_as_mandatory() -> None:
         },
     )
 
-    assert model.required_parameters == ["aspect_ratio", "resolution"]
+    assert model.required_parameters == []
+    # The values are still advertised, the user just gets the choice.
+    assert model.resolutions == ["1K", "2K"]
+    assert model.aspect_ratios == ["1:1", "16:9"]
 
 
 def test_no_required_parameters_without_value_lists() -> None:

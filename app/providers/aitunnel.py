@@ -44,29 +44,24 @@ ACCOUNT_URL = "https://api.aitunnel.ru/v1/aitunnel"
 LOGGER = get_logger()
 
 
-def _required_parameters(
-    resolutions: list[str],
-    aspect_ratios: list[str],
-    qualities: list[str],
-    formats: list[str],
-    backgrounds: list[str],
-) -> list[str]:
-    """Infer the mandatory parameters of a model from its advertised values.
+# None of the image parameters is mandatory: the vendor's table marks
+# `resolution`, `aspect_ratio`, `size`, `quality`, `output_format`, `background`,
+# `output_compression` and `seed` as optional, and only `model` and `prompt` as
+# required. `background` is the only one validated strictly, and validation is not
+# the same as being mandatory.
+_REQUIRED_PARAMETERS: list[str] = []
 
-    The AITUNNEL catalog lists the values a parameter accepts but does not say which
-    of them are mandatory. A list that offers ``auto`` can be left out, so a list
-    without it is treated as mandatory: the provider otherwise rejects the request
-    and the caller still pays for the attempt. The names are the ones used in
-    :class:`~app.core.models.GenerationRequest`, not the catalog field names.
+
+def _required_parameters() -> list[str]:
+    """The parameters a model cannot be called without.
+
+    The list is empty by documentation, and that is the point. The previous code
+    guessed: a value list without ``auto`` was treated as mandatory, so the panel
+    dropped the "not chosen" option, preselected the first value and sent it. For
+    ``resolution`` that silently changed the price, because the vendor prices by
+    resolution.
     """
-    candidates = {
-        "resolution": resolutions,
-        "aspect_ratio": aspect_ratios,
-        "quality": qualities,
-        "output_format": formats,
-        "background": backgrounds,
-    }
-    return sorted(name for name, values in candidates.items() if values and "auto" not in values)
+    return list(_REQUIRED_PARAMETERS)
 
 
 class AitunnelProvider(Provider):
@@ -113,13 +108,7 @@ class AitunnelProvider(Provider):
             supports_edit=bool(entry.get("supports_edit")),
             max_n=as_int(entry.get("max_n"), 1),
             max_input_references=as_int(entry.get("max_input_references"), 0),
-            required_parameters=_required_parameters(
-                resolutions=resolutions,
-                aspect_ratios=aspect_ratios,
-                qualities=qualities,
-                formats=formats,
-                backgrounds=backgrounds,
-            ),
+            required_parameters=_required_parameters(),
             allowed_passthrough=list(entry.get("allowed_passthrough_parameters") or []),
         )
 
