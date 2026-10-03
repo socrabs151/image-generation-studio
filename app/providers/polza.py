@@ -19,6 +19,7 @@ image, so a request for several images runs several tasks.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -156,8 +157,15 @@ class Deadline:
         return self.remaining() <= 0.0
 
     def for_request(self) -> int:
-        """A whole number of seconds safe to pass to a single HTTP call."""
-        return max(1, int(self.remaining()))
+        """A whole number of seconds for one HTTP call.
+
+        Rounded **up**, not down: a fresh 180-second budget has already spent a
+        fraction of a second by the time the request is built, and truncating
+        would hand every call one second less than the user asked for. The
+        ceiling is at most one second past the deadline, which is what a whole
+        number of seconds costs.
+        """
+        return max(1, math.ceil(self.remaining()))
 
 
 class PolzaProvider(Provider):

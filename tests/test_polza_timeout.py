@@ -88,8 +88,12 @@ class TestTheDeadlineItself:
 
     def test_a_single_request_gets_at_least_a_second(self) -> None:
         """A fractional remainder must not become timeout=0 and hang forever."""
-        assert Deadline(1.5, minimum=0).for_request() == 1
-        assert Deadline(90, minimum=0).for_request() >= 88
+        assert Deadline(1.5, minimum=0).for_request() == 2
+        assert Deadline(90, minimum=0).for_request() in (90, 91)
+
+    def test_a_fresh_budget_is_not_shortened_by_the_time_it_took_to_build_it(self) -> None:
+        """Found on CI: int() truncation handed every request one second less."""
+        assert Deadline(180, minimum=0).for_request() == 180
 
 
 class TestTheBudgetIsSharedByPostAndPolling:
