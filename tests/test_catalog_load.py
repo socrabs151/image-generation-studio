@@ -179,7 +179,6 @@ class TestUnwritableCache:
         self, cache: Path, fetched, monkeypatch: pytest.MonkeyPatch, caplog
     ) -> None:
         """Silent: the models show up and next start without a network has nothing."""
-        service = CatalogService(cache)
         fetched(_Provider([_model()]))
 
         def failing(path: Path, _data: object) -> None:

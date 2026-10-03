@@ -65,6 +65,11 @@ LOGGER = get_logger()
 CATALOG_PAGE_SIZE = 100
 POLL_INTERVAL = 4.0
 
+# The least time one task may be given, however small the batch budget looks:
+# cutting a task off before the aggregator had a chance to answer produces nothing
+# and still costs whatever it already spent.
+MIN_TASK_TIMEOUT = 10
+
 # A media task produces a single image, so ``n`` is served by running ``n`` tasks.
 # The cap mirrors the ``max_images`` ceiling documented for the endpoint.
 MAX_IMAGES_PER_REQUEST = 6
@@ -88,6 +93,41 @@ _MAPPED_PARAMETERS = frozenset(
 )
 
 _TERMINAL_FAILURES = ("failed", "cancelled")
+
+
+class Deadline:
+    """The time one request may take, counted once.
+
+    Two mistakes lived here before. The timeout was handed to each of the ``n``
+    tasks in full, so a batch of six could take six times as long as the user
+    asked for; and inside one task the same timeout was given both to the POST
+    and to the polling loop, so a single image could take twice as long.
+
+    A deadline is spent, not restarted: whatever the POST leaves of the budget is
+    all the polling gets.
+    """
+
+    def __init__(self, seconds: float, minimum: float = MIN_TASK_TIMEOUT) -> None:
+        # One slow aggregator must not be cut off before it had a chance to
+        # answer at all.
+        self._total = max(float(seconds), float(minimum))
+        self._started = time.monotonic()
+
+    @property
+    def total(self) -> float:
+        """The whole budget, in seconds, for the message when it runs out."""
+        return self._total
+
+    def remaining(self) -> float:
+        """Seconds left, never below zero."""
+        return max(0.0, self._total - (time.monotonic() - self._started))
+
+    def expired(self) -> bool:
+        return self.remaining() <= 0.0
+
+    def for_request(self) -> int:
+        """A whole number of seconds safe to pass to a single HTTP call."""
+        return max(1, int(self.remaining()))
 
 
 class PolzaProvider(Provider):
@@ -175,7 +215,7 @@ class PolzaProvider(Provider):
         """
         self._require_key()
         if request.n <= 1:
-            return self._run_task(request, timeout, cancel_check)
+            return self._run_task(request, Deadline(timeout), cancel_check)
         return self._run_tasks(request, timeout, cancel_check)
 
     def _run_tasks(
@@ -197,6 +237,9 @@ class PolzaProvider(Provider):
         priced = False
         model = request.model
         stopped_early: str | None = None
+        # The timeout is what the user is willing to wait for the whole request,
+        # so the tasks share it instead of each taking all of it.
+        per_task = max(MIN_TASK_TIMEOUT, timeout / max(1, request.n))
         for index in range(request.n):
             if cancel_check is not None and cancel_check():
                 stopped_early = "cancelled"
@@ -205,7 +248,7 @@ class PolzaProvider(Provider):
             # image after the first is drawn from the next seed value.
             task = replace(request, n=1, seed=_seed_for(request.seed, index))
             try:
-                outcome = self._run_task(task, timeout, cancel_check)
+                outcome = self._run_task(task, Deadline(per_task), cancel_check)
             except CancelledError:
                 stopped_early = "cancelled"
                 break
@@ -245,13 +288,24 @@ class PolzaProvider(Provider):
     def _run_task(
         self,
         request: GenerationRequest,
-        timeout: int,
+        deadline: Deadline,
         cancel_check: Callable[[], bool] | None,
     ) -> GenerationResult:
-        """Run a single media task and wait for its result."""
-        payload = self._post(MEDIA_URL, self._build_payload(request), timeout)
+        """Run a single media task and wait for its result.
+
+        Both steps draw on the same deadline: time spent waiting for the POST is
+        time the polling does not get.
+        """
+        if deadline.expired():
+            raise ProviderTimeoutError(
+                f"Generation did not finish within {deadline.total:.0f} s "
+                f"(model {request.model})."
+            )
+        payload = self._post(MEDIA_URL, self._build_payload(request), deadline.for_request())
         if _is_task(payload):
-            payload = self._await_media(str(payload.get("id")), timeout, cancel_check)
+            payload = self._await_media(
+                str(payload.get("id")), deadline, cancel_check, request.model
+            )
         return self._result_from_media(payload, request.model)
 
     @staticmethod
@@ -308,24 +362,32 @@ class PolzaProvider(Provider):
     def _await_media(
         self,
         media_id: str,
-        timeout: int,
+        deadline: Deadline,
         cancel_check: Callable[[], bool] | None,
+        model: str = "",
     ) -> dict:
-        """Poll a media task until it completes, fails or the timeout is reached."""
-        deadline = time.monotonic() + timeout
+        """Poll a media task until it completes, fails or the deadline is reached.
+
+        The task id is in every failure message on purpose: the aggregator is
+        holding a paid task, and without the id there is no way to ask about it
+        later.
+        """
         while True:
             if cancel_check is not None and cancel_check():
                 raise CancelledError()
+            if deadline.expired():
+                raise ProviderTimeoutError(
+                    f"Generation did not finish within {deadline.total:.0f} s "
+                    f"(task {media_id}{f', model {model}' if model else ''}). "
+                    "The task is still running at the aggregator; it may be billed "
+                    "even though no image arrived."
+                )
             payload = self._get(f"{MEDIA_URL}/{media_id}", timeout=int(POLL_INTERVAL * 4))
             status = str(payload.get("status") or "")
             if status == "completed":
                 return payload
             if status in _TERMINAL_FAILURES:
                 raise ProviderError(_media_error_message(payload))
-            if time.monotonic() >= deadline:
-                raise ProviderTimeoutError(
-                    f"Generation did not finish within {timeout} s (task {media_id})."
-                )
             time.sleep(POLL_INTERVAL)
 
     # ---------- results ----------

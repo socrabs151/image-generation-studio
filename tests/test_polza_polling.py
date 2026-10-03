@@ -12,7 +12,7 @@ import pytest
 
 import app.providers.polza as polza
 from app.core.errors import CancelledError, ProviderError, ProviderTimeoutError
-from app.providers.polza import PolzaProvider
+from app.providers.polza import Deadline, PolzaProvider
 
 
 class _Polling:
@@ -41,8 +41,13 @@ def _provider(payloads: list[dict]) -> tuple[PolzaProvider, _Polling]:
     return provider, polling
 
 
-def _await(provider: PolzaProvider, *, timeout: int = 180, cancel=None):
-    return provider._await_media("task-1", timeout, cancel)
+def _await(provider: PolzaProvider, *, seconds: float = 180.0, cancel=None, model: str = ""):
+    return provider._await_media("task-1", Deadline(seconds), cancel, model)
+
+
+def _spent() -> Deadline:
+    """A deadline with nothing left in it."""
+    return Deadline(0, minimum=0)
 
 
 class TestASuccessfulTask:
@@ -135,17 +140,28 @@ class TestATimeout:
         provider, _ = _provider([{"status": "processing"}])
 
         with pytest.raises(ProviderTimeoutError) as caught:
-            _await(provider, timeout=0)
+            provider._await_media("task-1", _spent(), None)
 
-        assert "task-1" in str(caught.value), "the task id must be in the message"
+        message = str(caught.value)
+        assert "task-1" in message, "the task id must be in the message"
+        assert "may be billed" in message, "the user must know the task may still cost"
 
     def test_a_timeout_names_the_wait_it_gave_up_after(self) -> None:
         provider, _ = _provider([{"status": "processing"}])
 
         with pytest.raises(ProviderTimeoutError) as caught:
-            _await(provider, timeout=0)
+            provider._await_media("task-1", _spent(), None)
 
         assert "within 0 s" in str(caught.value)
+
+    def test_the_model_is_named_so_the_task_can_be_found(self) -> None:
+        provider, _ = _provider([{"status": "processing"}])
+
+        with pytest.raises(ProviderTimeoutError) as caught:
+            provider._await_media("task-7", _spent(), None, "seedream-4")
+
+        assert "task-7" in str(caught.value)
+        assert "seedream-4" in str(caught.value)
 
 
 class TestCancellation:
@@ -186,7 +202,7 @@ class TestTheWholeRequest:
             ]
         )
 
-        result = provider._await_media("task-1", 180, None)
+        result = provider._await_media("task-1", Deadline(180), None)
 
         assert len(polling.asked) == 3
         assert result["data"][0]["b64_json"] == "eA=="
