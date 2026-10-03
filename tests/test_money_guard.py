@@ -169,12 +169,16 @@ class TestPreflightBalance:
         assert provider.generated == 1
         assert outcome.account is None
 
-    def test_without_the_flag_nothing_is_asked(self, tmp_path: Path) -> None:
-        """A model without a price has no estimate, so there is nothing to compare."""
+    def test_a_model_without_a_price_asks_but_is_not_refused(self, tmp_path: Path) -> None:
+        """No estimate means no money to compare, but the key's white list still applies.
+
+        The account is now asked whenever the pre-flight is on: an unknown price
+        must not hide a model the key may not use.
+        """
         provider = _Provider(AccountInfo(balance=0.0))
         service = _service(tmp_path, provider)
 
-        service.generate(
+        outcome = service.generate(
             _request(n=1),
             _model(None),
             save_dir=tmp_path,
@@ -182,8 +186,9 @@ class TestPreflightBalance:
             check_balance_first=True,
         )
 
-        assert provider.checks == 0
-        assert provider.generated == 1
+        assert provider.checks == 1
+        assert provider.generated == 1, "an unknown price is not a reason to refuse"
+        assert outcome.account is not None
 
     def test_the_check_is_off_by_default(self, tmp_path: Path) -> None:
         provider = _Provider(AccountInfo(balance=0.5))

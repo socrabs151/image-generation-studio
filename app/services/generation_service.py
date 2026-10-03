@@ -321,14 +321,21 @@ class GenerationService:
         """
         if not enabled:
             return None
-        needed = reserved_amount(model.max_price, request.n) if model else None
-        if needed is None:
-            return None
         try:
             account = provider.check_account()
         except AppError as exc:
             LOGGER.warning("Could not check the balance before the request: %s", exc)
             return None
+
+        # The white list comes first and needs no price: a key that may not use the
+        # model is refused whether or not the catalog knows what it costs.
+        self._check_allowed_by_key(account, request.model)
+
+        if model is None:
+            return account
+        needed = reserved_amount(model.max_price, request.n)
+        if needed is None:
+            return account
         for name, available in (
             ("balance", account.balance),
             ("key budget", account.budget_remaining),
@@ -342,6 +349,22 @@ class GenerationService:
                     "Nothing was sent and nothing was charged."
                 )
         return account
+
+    @staticmethod
+    def _check_allowed_by_key(account: AccountInfo, model_id: str) -> None:
+        """Refuse a model the key is not allowed to use.
+
+        AITUNNEL reports the key's white list. Without this check the aggregator
+        answers 403 *after* reserving the money, and the reservation is what the
+        user pays for.
+        """
+        allowed = account.limits.get("allowed_models")
+        if not isinstance(allowed, list) or model_id in allowed:
+            return
+        listed = ", ".join(str(item) for item in allowed[:10]) or "none reported"
+        raise BadParameterError(
+            f"Your key may not use the model {model_id}. The aggregator allows: {listed}."
+        )
 
     def _record(self, record: HistoryRecord, limit: int) -> None:
         """Append a history entry, never failing the generation because of it.
