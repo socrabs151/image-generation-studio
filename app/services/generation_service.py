@@ -28,7 +28,7 @@ from app.core.models import (
     GenerationResult,
     ModelInfo,
 )
-from app.core.pricing import format_money, reserved_amount
+from app.core.pricing import can_afford, format_money, reserved_amount
 from app.logging_setup import get_logger
 from app.providers import create_provider
 from app.providers.base import Provider
@@ -333,7 +333,9 @@ class GenerationService:
             ("balance", account.balance),
             ("key budget", account.budget_remaining),
         ):
-            if available is not None and available < needed:
+            # can_afford lets an unknown figure through: a balance the
+            # aggregator did not report must not block the user.
+            if not can_afford(available, needed):
                 raise InsufficientFundsError(
                     f"Not enough money: the request needs about {format_money(needed)} ₽, "
                     f"but the {name} is {format_money(available)} ₽. "

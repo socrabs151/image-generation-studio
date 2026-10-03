@@ -59,7 +59,12 @@ def reserved_amount(max_price: float | None, n: int) -> float | None:
 
 
 def can_afford(balance: float | None, reserved: float | None) -> bool:
-    """Whether the current balance covers the reserved amount."""
+    """Whether the current balance covers the reserved amount.
+
+    An unknown figure on either side is permission, not refusal: a balance the
+    aggregator did not report, or a model with no price in the catalog, leaves
+    nothing to compare, and the aggregator is the authority that refuses.
+    """
     if balance is None or reserved is None:
         return True
     return balance >= reserved
