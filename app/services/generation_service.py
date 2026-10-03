@@ -32,6 +32,12 @@ from app.core.pricing import format_money, reserved_amount
 from app.logging_setup import get_logger
 from app.providers import create_provider
 from app.providers.base import Provider
+from app.services.file_names import (
+    DEFAULT_FILENAME_TEMPLATE,
+    NameParts,
+    render_filename,
+    unknown_placeholders,
+)
 from app.services.history_store import (
     HistoryRecord,
     HistoryStore,
@@ -204,6 +210,7 @@ class GenerationService:
         timeout: int = 180,
         cancel_check: Callable[[], bool] | None = None,
         check_balance_first: bool = False,
+        filename_template: str = DEFAULT_FILENAME_TEMPLATE,
     ) -> GenerationOutcome:
         """Run the request through the provider, save files and record history.
 
@@ -246,7 +253,9 @@ class GenerationService:
         # did make it to disk are shown and recorded, the entry is marked as
         # failed so the missing ones are not passed off as a complete batch.
         try:
-            file_paths, save_error = self._save_images(result, save_dir, request)
+            file_paths, save_error = self._save_images(
+                result, save_dir, request, template=filename_template
+            )
         except OSError as exc:
             LOGGER.error("Could not save the images: %s", exc)
             self._record(
@@ -340,7 +349,10 @@ class GenerationService:
 
     @staticmethod
     def _save_images(
-        result: GenerationResult, save_dir: Path, request: GenerationRequest
+        result: GenerationResult,
+        save_dir: Path,
+        request: GenerationRequest,
+        template: str = DEFAULT_FILENAME_TEMPLATE,
     ) -> tuple[list[str], str | None]:
         """Write the images and report what could not be written.
 
@@ -348,17 +360,41 @@ class GenerationService:
         for the history entry. A batch is not thrown away because one file in
         the middle failed: the paid pictures that made it to disk are shown and
         the entry says that the batch is incomplete.
+
+        ``template`` names the files; an empty one keeps the previous scheme.
+        A name that is already taken gets a number appended, so a batch does not
+        depend on the template mentioning ``{index}``.
         """
         save_dir.mkdir(parents=True, exist_ok=True)
         stamp = now_iso().replace(":", "-")
         model = safe_filename_component(result.model)
+        unknown = unknown_placeholders(template)
+        if unknown:
+            LOGGER.warning(
+                "The file name template uses unknown placeholders %s; they stay in "
+                "the name as written.",
+                ", ".join(unknown),
+            )
         paths: list[str] = []
         failed = 0
         first_error = ""
+        total = len(result.images)
         for index, image in enumerate(result.images, 1):
             extension = _extension_for(image)
-            suffix = f"_{index}" if len(result.images) > 1 else ""
-            stem = f"{stamp}_{model}{suffix}"
+            if template.strip():
+                stem = render_filename(
+                    template,
+                    NameParts(
+                        model=result.model,
+                        provider=request.provider_id,
+                        prompt=request.prompt,
+                        index=index,
+                        total=total,
+                    ),
+                )
+            else:
+                # An empty template keeps the previous naming.
+                stem = f"{stamp}_{model}" + (f"_{index}" if total > 1 else "")
             for attempt in itertools.count(1):
                 name = stem if attempt == 1 else f"{stem}_{attempt}"
                 path = save_dir / f"{name}.{extension}"

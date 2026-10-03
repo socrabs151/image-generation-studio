@@ -26,6 +26,13 @@ from PySide6.QtWidgets import (
 )
 
 from app.providers import provider_choices
+from app.services.file_names import (
+    DEFAULT_FILENAME_TEMPLATE,
+    PLACEHOLDERS,
+    NameParts,
+    render_filename,
+    unknown_placeholders,
+)
 from app.services.settings_store import ProviderSettings, Settings
 
 
@@ -110,6 +117,23 @@ class SettingsDialog(QDialog):
         row.addWidget(browse)
         dir_layout.addLayout(row)
 
+        box_name = QGroupBox("File names")
+        name_form = QFormLayout(box_name)
+        self.filename_template = QLineEdit(self._settings.filename_template)
+        self.filename_template.setPlaceholderText(DEFAULT_FILENAME_TEMPLATE)
+        name_form.addRow("Template:", self.filename_template)
+        hint = QLabel("Placeholders: " + ", ".join(PLACEHOLDERS))
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        name_form.addRow("", hint)
+        preview = QLabel("")
+        preview.setObjectName("hint")
+        preview.setWordWrap(True)
+        self._name_preview = preview
+        self.filename_template.textChanged.connect(self._update_preview)
+        name_form.addRow("", preview)
+        self._update_preview(self.filename_template.text())
+
         box_history = QGroupBox("History")
         history_form = QFormLayout(box_history)
         self.history_limit = QLineEdit(str(self._settings.history_limit))
@@ -118,6 +142,7 @@ class SettingsDialog(QDialog):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.addWidget(box_dir)
+        layout.addWidget(box_name)
         layout.addWidget(box_history)
         layout.addStretch(1)
         return container
@@ -142,9 +167,37 @@ class SettingsDialog(QDialog):
         self.theme = QComboBox()
         self.theme.addItems(["light", "dark"])
         self.theme.setCurrentText(self._settings.theme)
+        self.notify_on_finish = QCheckBox("Notify when a generation finishes")
+        self.notify_on_finish.setChecked(self._settings.notify_on_finish)
+        self.notify_on_finish.setToolTip(
+            "Only while the window is in the background: a notification next to the "
+            "window you are already looking at is just noise."
+        )
         form = QFormLayout()
         form.addRow("Theme:", self.theme)
+        form.addRow("", self.notify_on_finish)
         return self._wrap(form)
+
+    def _update_preview(self, template: str) -> None:
+        """Show what the template would name right now."""
+        unknown = unknown_placeholders(template)
+        if unknown:
+            self._name_preview.setText("Unknown: " + ", ".join(unknown))
+            return
+        sample = NameParts(
+            model=self._selected_model_name() or "model-name",
+            provider=self._settings.default_provider,
+            prompt="prompt text",
+            index=1,
+            total=1,
+        )
+        try:
+            self._name_preview.setText("Example: " + render_filename(template, sample) + ".png")
+        except Exception:  # noqa: BLE001 - a preview must never break the dialog
+            self._name_preview.setText("")
+
+    def _selected_model_name(self) -> str:
+        return self._settings.default_model
 
     # ---------- helpers ----------
     def _pick_dir(self) -> None:
@@ -188,6 +241,8 @@ class SettingsDialog(QDialog):
             default_model=self.model.text().strip(),
             auto_refresh_catalog=self.auto_refresh.isChecked(),
             save_dir=self.save_dir.text().strip(),
+            filename_template=self.filename_template.text().strip(),
+            notify_on_finish=self.notify_on_finish.isChecked(),
             history_limit=limit,
             theme=self.theme.currentText(),
             confirm_threshold_rub=self._parse_float(self.confirm_threshold, 50.0),

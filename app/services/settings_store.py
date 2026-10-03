@@ -17,6 +17,7 @@ from app.config import (
 )
 from app.core.errors import ConfigError
 from app.logging_setup import get_logger
+from app.services.file_names import DEFAULT_FILENAME_TEMPLATE
 from app.services.json_file import UnreadableFile, read_json, write_json_atomic
 
 LOGGER = get_logger()
@@ -51,6 +52,12 @@ class Settings:
     session_limit_rub: float = 0.0
     # Provider request timeout in seconds.
     generation_timeout: int = 180
+    # How saved images are named; see app.services.file_names for the
+    # placeholders. An empty value keeps the previous scheme.
+    filename_template: str = DEFAULT_FILENAME_TEMPLATE
+    # Show a desktop notification when a generation finishes while the window is
+    # in the background.
+    notify_on_finish: bool = True
     # Models marked as favourites, as "provider_id:model_id" so that the same model
     # name at two aggregators stays two separate entries.
     favorite_models: list[str] = field(default_factory=list)
@@ -146,6 +153,10 @@ class SettingsStore:
             confirm_threshold_rub=_as_float(raw.get("confirm_threshold_rub"), 50.0),
             session_limit_rub=_as_float(raw.get("session_limit_rub"), 0.0),
             generation_timeout=_as_int(raw.get("generation_timeout"), 180),
+            filename_template=_as_str(
+                raw.get("filename_template"), DEFAULT_FILENAME_TEMPLATE
+            ),
+            notify_on_finish=_as_bool(raw.get("notify_on_finish"), True),
             favorite_models=_string_list(raw.get("favorite_models")),
             recent_models=_string_list(raw.get("recent_models")),
             providers=providers or default.providers,

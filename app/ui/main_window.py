@@ -74,6 +74,7 @@ from app.ui.model_list import (
     remember_model,
     visible_models,
 )
+from app.ui.notifier import Notifier
 from app.ui.panels.log import LogPanel
 from app.ui.panels.params import ParamsPanel
 from app.ui.panels.prompt import PromptPanel
@@ -133,6 +134,7 @@ class MainWindow(QMainWindow):
         self._history_window: HistoryWindow | None = None
         self._theme_actions: dict[str, QAction] = {}
         self._session_spend = 0.0
+        self._notifier = Notifier(self, self.windowIcon() or None)
 
         self._settings_store = SettingsStore()
         # A damaged settings file must not stop the application from starting: the
@@ -554,6 +556,7 @@ class MainWindow(QMainWindow):
             self._settings.history_limit,
             self._settings.generation_timeout,
             check_balance_first=reserved is not None,
+            filename_template=self._settings.filename_template,
             on_done=self._on_generated,
             on_fail=self._on_generation_failed,
             is_generation=True,
@@ -1069,6 +1072,12 @@ class MainWindow(QMainWindow):
             self._show_account(outcome.account)
         self.log.info(f"Done. Cost: {cost} ₽. Files saved: {len(outcome.file_paths)}.")
         self.history_changed.emit()
+        if self._settings.notify_on_finish:
+            count = len(outcome.file_paths)
+            self._notifier.notify_finished(
+                "Generation finished",
+                f"{count} image{'s' if count != 1 else ''} · {cost} ₽",
+            )
 
     def _on_generation_failed(self, message: str) -> None:
         # A failed or cancelled request still leaves a history entry, so the
@@ -1079,6 +1088,8 @@ class MainWindow(QMainWindow):
             return
         self.workspace.show_error(message)
         self.log.error(f"Generation failed: {message}")
+        if self._settings.notify_on_finish:
+            self._notifier.notify_finished("Generation failed", message[:200])
 
     # ---------- helpers ----------
     def _selected_model(self) -> ModelInfo | None:
