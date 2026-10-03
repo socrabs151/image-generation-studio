@@ -566,9 +566,21 @@ class MainWindow(QMainWindow):
         )
 
     def _cancel_generation(self) -> None:
-        if self._worker is not None:
-            self._worker.cancel()
-            self.log.warning("Cancellation requested.")
+        """Stop waiting, and say plainly that the aggregator is not told.
+
+        Neither aggregator can be interrupted once the request is out: AITUNNEL
+        answers in one response and checks the flag only before sending, Polza
+        keeps polling a paid task. So "cancellation requested" would have been a
+        promise the application cannot keep.
+        """
+        if self._worker is None:
+            return
+        self._worker.cancel()
+        name = display_name(self._settings.default_provider)
+        self.log.warning(
+            f"Stopped waiting. {name} keeps the request running until it answers, "
+            "and it stays paid for. Pictures that already arrived are saved."
+        )
 
     def _clear_prompt(self) -> None:
         """Empty the prompt editor."""
