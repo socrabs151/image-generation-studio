@@ -95,7 +95,12 @@ class TestASuccessfulTask:
         elapsed = time.monotonic() - started
 
         assert len(polling.asked) == 2
-        assert elapsed >= 0.4, f"the loop asked twice in {elapsed:.3f} s without waiting"
+        # time.sleep may return a little early on Windows, so the check is a
+        # fraction of the interval. Without the wait two asks take about a
+        # millisecond, which this still rules out.
+        assert elapsed >= 0.8 * polza.POLL_INTERVAL, (
+            f"the loop asked twice in {elapsed:.3f} s without waiting"
+        )
 
     def test_an_unknown_status_keeps_waiting(self) -> None:
         provider, polling = _provider(

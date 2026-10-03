@@ -663,11 +663,27 @@ class MainWindow(QMainWindow):
             return
         updated = dialog.result_settings()
         provider_changed = updated.default_provider != self._provider_combo.currentData()
+        # Only a generation blocks the switch. A catalog refresh or a balance
+        # check is not a reason to tell the user to wait, and the combo already
+        # let it through anyway.
+        busy = self._slot.generation_running
+        if provider_changed and busy:
+            # The dialog applied the change the moment it closed, while the top
+            # combo refused to switch. Honouring it here would empty the catalog
+            # and reset the parameters under a request that is already paid for
+            # and running. The new default is kept on disk and takes effect for
+            # the next request instead.
+            updated.default_provider = self._settings.default_provider
+            self.log.warning(
+                f"The default aggregator stays {display_name(updated.default_provider)} "
+                "until the current task finishes. The new default will be used for the "
+                "next request."
+            )
         self._settings = updated
         self._settings_store.save(self._settings)
         self._keystore.load()
         self._apply_theme(self._settings.theme)
-        if provider_changed:
+        if provider_changed and not busy:
             self._select_provider(self._settings.default_provider)
             self._models = []
             self._rebuild_model_list()
