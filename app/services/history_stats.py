@@ -44,11 +44,19 @@ class HistoryTotals:
     unpriced: int = 0
 
     def summary(self) -> str:
-        """One-line description for the history window."""
-        return (
+        """One-line description for the history window.
+
+        When some attempts carry no price the total is a lower bound, and it says
+        so: a request that failed before the aggregator answered has an unknown
+        cost, and a total that hides that is worse than no total.
+        """
+        line = (
             f"{self.attempts} attempts · {self.succeeded} ok · {self.failed} failed · "
             f"{self.images} images · {self.spent_rub:.2f} ₽"
         )
+        if self.unpriced:
+            line += f" · {self.unpriced} without a known price"
+        return line
 
 
 @dataclass(frozen=True, slots=True)

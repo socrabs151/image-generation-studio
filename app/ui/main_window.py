@@ -134,6 +134,9 @@ class MainWindow(QMainWindow):
         self._history_window: HistoryWindow | None = None
         self._theme_actions: dict[str, QAction] = {}
         self._session_spend = 0.0
+        # Failures whose cost the aggregator never reported; the session total
+        # cannot include them, so they are counted and shown instead.
+        self._unpriced_failures = 0
         self._notifier = Notifier(self, self.windowIcon() or None)
 
         self._settings_store = SettingsStore()
@@ -1087,6 +1090,8 @@ class MainWindow(QMainWindow):
             self.log.info("Generation cancelled.")
             return
         self.workspace.show_error(message)
+        self._unpriced_failures += 1
+        self._status_cost.setText(self._session_spend_line(None))
         self.log.error(f"Generation failed: {message}")
         if self._settings.notify_on_finish:
             self._notifier.notify_finished("Generation failed", message[:200])
@@ -1242,10 +1247,17 @@ class MainWindow(QMainWindow):
     def _update_session_spend(self, cost_rub: float | None) -> None:
         if cost_rub is not None:
             self._session_spend += cost_rub
-        self._status_cost.setText(
+        self._status_cost.setText(self._session_spend_line(cost_rub))
+
+    def _session_spend_line(self, cost_rub: float | None) -> str:
+        """The spend line, honest about what it does not know."""
+        line = (
             f"Last generation: {format_money(cost_rub)} ₽ · "
             f"session spend: {format_money(self._session_spend)} ₽"
         )
+        if self._unpriced_failures:
+            line += f" · {self._unpriced_failures} failed without a known price"
+        return line
 
     def _apply_theme(self, theme: str) -> None:
         # QGuiApplication.instance() is typed as QCoreApplication, but the
