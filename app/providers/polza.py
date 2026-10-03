@@ -29,6 +29,7 @@ from app.core.errors import (
     AppError,
     CancelledError,
     ConfigError,
+    NetworkError,
     ProviderError,
     ProviderTimeoutError,
 )
@@ -73,6 +74,11 @@ MIN_TASK_TIMEOUT = 10
 # A media task produces a single image, so ``n`` is served by running ``n`` tasks.
 # The cap mirrors the ``max_images`` ceiling documented for the endpoint.
 MAX_IMAGES_PER_REQUEST = 6
+
+# How many times one status question may fail before the task is given up on. The
+# task keeps running at the aggregator either way; only our view of it is lost.
+POLL_RETRIES = 3
+POLL_RETRY_DELAY = 1.0
 
 # The API documents the seed range as 1..4294967295.
 MAX_SEED = 4294967295
@@ -372,6 +378,10 @@ class PolzaProvider(Provider):
         holding a paid task, and without the id there is no way to ask about it
         later.
         """
+        # A paid task is already running; one unlucky 502 while asking about it
+        # used to throw the picture away. Asking about a task is a free,
+        # idempotent GET, so it is retried — unlike the POST that starts one.
+        flaky = 0
         while True:
             if cancel_check is not None and cancel_check():
                 raise CancelledError()
@@ -382,13 +392,35 @@ class PolzaProvider(Provider):
                     "The task is still running at the aggregator; it may be billed "
                     "even though no image arrived."
                 )
-            payload = self._get(f"{MEDIA_URL}/{media_id}", timeout=int(POLL_INTERVAL * 4))
+            try:
+                payload = self._poll(media_id, deadline)
+            except (NetworkError, ProviderError) as exc:
+                flaky += 1
+                if flaky > POLL_RETRIES or deadline.expired():
+                    raise ProviderError(
+                        f"Stopped asking about task {media_id} after {flaky} failed "
+                        f"attempt(s): {exc}. The task is still running at the "
+                        "aggregator and may be billed."
+                    ) from exc
+                LOGGER.warning(
+                    "Asking about task %s failed (attempt %d): %s",
+                    media_id,
+                    flaky,
+                    exc,
+                )
+                time.sleep(POLL_RETRY_DELAY)
+                continue
+            flaky = 0
             status = str(payload.get("status") or "")
             if status == "completed":
                 return payload
             if status in _TERMINAL_FAILURES:
                 raise ProviderError(_media_error_message(payload))
             time.sleep(POLL_INTERVAL)
+
+    def _poll(self, media_id: str, deadline: Deadline) -> dict:
+        """Ask about a task once, without spending the whole budget on the answer."""
+        return self._get(f"{MEDIA_URL}/{media_id}", timeout=int(POLL_INTERVAL * 4))
 
     # ---------- results ----------
     def _result_from_media(self, payload: dict, fallback_model: str) -> GenerationResult:
