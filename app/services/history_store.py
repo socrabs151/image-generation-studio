@@ -171,25 +171,66 @@ class HistoryStore:
         # A history file is written by many versions of the app and edited by
         # hand during support cases, so every field is read defensively: one
         # odd record must not cost the user the whole history window.
+        #
+        # ``raw.get(name, "")`` is not enough. A file written by hand can hold an
+        # explicit null, and ``None`` is not the string the window expects: the
+        # stats then call ``None.lower()`` in the GUI thread, with nothing to
+        # catch it.
         return HistoryRecord(
             # Records written before schema 2 have no id; one is invented so the
             # window can address them, and it is persisted on the next write.
-            id=raw.get("id") or uuid.uuid4().hex[:12],
-            timestamp=raw.get("timestamp") or datetime.now().isoformat(timespec="seconds"),
-            provider_id=raw.get("provider_id", ""),
-            model=raw.get("model", ""),
-            prompt=raw.get("prompt", ""),
+            id=_as_str(raw.get("id")) or uuid.uuid4().hex[:12],
+            timestamp=_as_str(raw.get("timestamp"))
+            or datetime.now().isoformat(timespec="seconds"),
+            provider_id=_as_str(raw.get("provider_id")),
+            model=_as_str(raw.get("model")),
+            prompt=_as_str(raw.get("prompt")),
             n=_as_int(raw.get("n"), 1),
             cost_rub=_as_float(raw.get("cost_rub")),
-            file_paths=[str(item) for item in (raw.get("file_paths") or [])],
-            status=raw.get("status", "ok"),
-            error=raw.get("error", ""),
-            request=dict(raw.get("request") or {}),
+            file_paths=_as_str_list(raw.get("file_paths")),
+            status=_as_str(raw.get("status")) or "ok",
+            error=_as_str(raw.get("error")),
+            request=_as_dict(raw.get("request")),
             duration_seconds=_as_float(raw.get("duration_seconds")),
         )
 
 
+def _as_str(value: object) -> str:
+    """A text field, whatever the file holds.
+
+    An explicit ``null``, a number, a list — all become a plain string. The
+    window and the statistics only ever call string methods on these fields.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _as_str_list(value: object) -> list[str]:
+    """A list of paths.
+
+    A single string used to be iterated character by character, so the window
+    showed one reference per letter of the file name.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [_as_str(item) for item in value]
+    return []
+
+
+def _as_dict(value: object) -> dict:
+    """The stored request snapshot, or an empty one."""
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def _as_int(value: object, fallback: int) -> int:
+    if value is None or isinstance(value, bool):
+        return fallback
     try:
         return int(value)  # type: ignore[call-overload, no-any-return]
     except (TypeError, ValueError):
@@ -199,7 +240,7 @@ def _as_int(value: object, fallback: int) -> int:
 def _as_float(value: object) -> float | None:
     """A price that cannot be read stays unknown, never zero: a wrong sum in
     the history is worse than a missing one."""
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     try:
         return float(value)  # type: ignore[arg-type]
