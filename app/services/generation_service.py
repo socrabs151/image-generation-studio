@@ -245,7 +245,15 @@ class GenerationService:
             )
             raise
         if cancel_check is not None and cancel_check():
-            raise CancelledError()
+            # The aggregator has already answered and already charged for this.
+            # Cancelling here would throw away a paid picture and leave no trace
+            # of the money, so the result is kept and the late cancellation is
+            # only worth a line in the log.
+            LOGGER.warning(
+                "Cancellation arrived after the aggregator answered; the images of %s "
+                "were already paid for and are saved.",
+                request.model,
+            )
 
         # The provider has already charged for this request, so a failure to
         # write the files must still leave a record with the cost: the money is
