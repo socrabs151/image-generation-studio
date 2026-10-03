@@ -123,6 +123,11 @@ tests/            # pytest
 
 См. [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Сообщить об уязвимости
+
+Не открывайте issue на уязвимость. Инструкция, что делать, если ключ попал в публичный
+репозиторий, — в [`SECURITY.md`](SECURITY.md). Обычные ошибки — в Issues.
+
 ## Лицензия
 
 MIT — см. [LICENSE](LICENSE).
