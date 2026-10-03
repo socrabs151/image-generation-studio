@@ -80,6 +80,9 @@ MAX_IMAGES_PER_REQUEST = 6
 POLL_RETRIES = 3
 POLL_RETRY_DELAY = 1.0
 
+# A generated picture is far below this; anything larger is not one.
+MAX_IMAGE_BYTES = 64 * 1024 * 1024
+
 # The API documents the seed range as 1..4294967295.
 MAX_SEED = 4294967295
 
@@ -482,13 +485,42 @@ class PolzaProvider(Provider):
         )
 
     def _download(self, url: str) -> GeneratedImage:
-        """Fetch a generated image from the temporary storage URL."""
+        """Fetch a generated image from the temporary storage URL.
+
+        The links live about a week. A link that has expired answers 403 or 404, and
+        that is not a network problem: retrying will not bring the picture back, so
+        it is reported as what it is. The bytes are also checked to be a picture
+        and to fit, because the URL is a remote address and its answer is not
+        necessarily an image.
+        """
         try:
             response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=120)
+        except requests.RequestException as exc:
+            raise wrap_network_error(exc) from exc
+
+        if response.status_code in (401, 403, 404, 410):
+            raise ProviderError(
+                f"The image link has expired (HTTP {response.status_code}). Polza.ai keeps "
+                "generated pictures for about a week, so this picture cannot be fetched "
+                "any more. The generation itself was paid for and the money is spent."
+            )
+        try:
             response.raise_for_status()
         except requests.RequestException as exc:
             raise wrap_network_error(exc) from exc
-        return GeneratedImage(data=response.content, media_type=guess_media_type(response.content))
+
+        body = response.content
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if content_type and not content_type.startswith("image/"):
+            raise ProviderError(
+                f"The image link answered with {content_type} instead of an image."
+            )
+        if len(body) > MAX_IMAGE_BYTES:
+            raise ProviderError(
+                f"The downloaded image is larger than the {MAX_IMAGE_BYTES // (1024 * 1024)} MB "
+                "limit."
+            )
+        return GeneratedImage(data=body, media_type=guess_media_type(body))
 
     # ---------- account ----------
     def check_account(self, timeout: int = 30) -> AccountInfo:
