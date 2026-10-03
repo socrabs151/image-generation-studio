@@ -30,7 +30,7 @@ def server_name(data_dir: Path, app_id: str = "image-generation-studio") -> str:
     """Build a server name that is unique per user and per data directory."""
     try:
         user = getpass.getuser()
-    except Exception:  # pragma: no cover - depends on the OS account setup
+    except Exception:  # noqa: BLE001 - the OS may have no account name at all
         user = "user"
     resolved = str(Path(data_dir).resolve()).lower()
     digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:10]

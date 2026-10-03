@@ -132,7 +132,6 @@ class ReferencePanel(QWidget):
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._strip_host = QWidget()
-        self._strip_host.setObjectName("scrollViewport")
         self._strip = QHBoxLayout(self._strip_host)
         self._strip.setContentsMargins(0, 0, 0, 0)
         self._strip.setSpacing(6)
@@ -359,7 +358,6 @@ class WorkspacePanel(QFrame):
 
     def _build_reference(self) -> QWidget:
         box = QFrame()
-        box.setObjectName("subPanel")
         column = QVBoxLayout(box)
         column.setContentsMargins(8, 8, 8, 8)
         column.setSpacing(6)
@@ -389,7 +387,6 @@ class WorkspacePanel(QFrame):
 
     def _build_result(self) -> QWidget:
         box = QFrame()
-        box.setObjectName("subPanel")
         column = QVBoxLayout(box)
         column.setContentsMargins(8, 8, 8, 8)
         column.setSpacing(6)

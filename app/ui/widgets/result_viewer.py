@@ -409,10 +409,8 @@ class ResultViewer(QWidget):
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._scroll.viewport().setObjectName("scrollViewport")
 
         self._grid_host = QWidget()
-        self._grid_host.setObjectName("scrollViewport")
         self._grid = QGridLayout(self._grid_host)
         self._grid.setContentsMargins(_CELL_SPACING, _CELL_SPACING, _CELL_SPACING, _CELL_SPACING)
         self._grid.setSpacing(_CELL_SPACING)

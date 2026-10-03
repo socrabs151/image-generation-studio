@@ -89,7 +89,6 @@ class HistoryWindow(QMainWindow):
         self.table.cellDoubleClicked.connect(self._open_file)
 
         self.search = QLineEdit()
-        self.search.setObjectName("historySearch")
         self.search.setPlaceholderText("Search prompts…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._apply_filters)
@@ -138,7 +137,6 @@ class HistoryWindow(QMainWindow):
         self._error_copy.setToolTip("Copy the error text to the clipboard")
         self._error_copy.clicked.connect(self._copy_error)
         self._error_box = QFrame()
-        self._error_box.setObjectName("subPanel")
         error_layout = QHBoxLayout(self._error_box)
         error_layout.setContentsMargins(8, 8, 8, 8)
         error_layout.setSpacing(8)

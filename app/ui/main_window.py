@@ -201,7 +201,8 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self._status_model = QLabel("Model: —")
         self._status_cost = QLabel("Last generation: —")
-        self.status.addWidget(QLabel("Ready"))
+        # The status bar carries the model and the session spend; an immutable
+        # "Ready" next to them said nothing and only took up room.
         self.status.addPermanentWidget(self._status_model)
         self.status.addPermanentWidget(self._status_cost)
         self.setStatusBar(self.status)

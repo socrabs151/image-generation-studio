@@ -46,7 +46,9 @@ target-version = "py311"
 exclude = ["references", ".venv", "build", "dist"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP", "B"]
+# BLE is on so that `# noqa: BLE001` markers are enforced rather than decorative:
+# a broad catch has to say out loud why it is broad.
+select = ["E", "F", "I", "W", "UP", "B", "BLE"]
 
 # ---------------------------------------------------------------------------
 # Проверка типов
