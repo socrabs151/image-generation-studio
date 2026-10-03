@@ -39,6 +39,18 @@ class AuthenticationError(ProviderError):
     """The API key is missing or invalid (HTTP 401/403)."""
 
 
+class ProviderBusyError(ProviderError):
+    """The aggregator asked us to come back later (HTTP 429 or 503).
+
+    Worth its own type because it is the one failure a retry can fix: the request
+    was not rejected on its merits, the service was simply busy.
+    """
+
+
+class ProviderNotFoundError(ProviderError):
+    """The aggregator has no such endpoint or model (HTTP 404)."""
+
+
 class ProviderTimeoutError(ProviderError):
     """The provider did not respond in time (HTTP 504)."""
 

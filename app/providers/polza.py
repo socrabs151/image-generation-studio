@@ -101,6 +101,27 @@ _MAPPED_PARAMETERS = frozenset(
 _TERMINAL_FAILURES = ("failed", "cancelled")
 
 
+def _empty_result_message(payload: dict) -> str:
+    """The aggregator's own explanation of an empty result, if it gave one."""
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message") or error.get("detail") or error.get("code")
+        if message:
+            return str(message)
+    elif isinstance(error, str) and error.strip():
+        return error.strip()
+    detail = payload.get("detail") or payload.get("message")
+    return str(detail).strip() if detail else ""
+
+
+def _warnings_message(payload: dict) -> str:
+    """Warnings are how the aggregator says a parameter was ignored."""
+    warnings = payload.get("warnings")
+    if not isinstance(warnings, list):
+        return ""
+    return "; ".join(str(item) for item in warnings if item)
+
+
 class Deadline:
     """The time one request may take, counted once.
 
@@ -272,7 +293,9 @@ class PolzaProvider(Provider):
                 raise CancelledError()
             if stopped_early is not None:
                 raise ProviderError(f"Polza.ai returned nothing: {stopped_early}")
-            raise ConfigError("The aggregator returned no images.")
+            # Every task reported success with no picture, which is the aggregator's
+            # doing and not a broken configuration on this side.
+            raise ProviderError("The aggregator completed every task but returned no images.")
         if stopped_early is not None:
             LOGGER.warning(
                 "Kept %d of %d images from %s; the batch was %s.",
@@ -440,7 +463,16 @@ class PolzaProvider(Provider):
             if url:
                 images.append(self._download(str(url)))
         if not images:
-            raise ConfigError("The aggregator returned no images.")
+            # A completed task with no pictures is not a configuration mistake:
+            # the aggregator finished and explained why. Its own wording is more
+            # useful than anything invented here.
+            raise ProviderError(
+                _empty_result_message(payload)
+                or "The aggregator completed the task but returned no images."
+            )
+        warnings_text = _warnings_message(payload)
+        if warnings_text:
+            LOGGER.warning("Polza.ai: %s", warnings_text)
         usage = payload.get("usage") or {}
         return GenerationResult(
             images=images,

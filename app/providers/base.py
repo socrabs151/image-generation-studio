@@ -14,7 +14,9 @@ from app.core.errors import (
     BadParameterError,
     InsufficientFundsError,
     NetworkError,
+    ProviderBusyError,
     ProviderError,
+    ProviderNotFoundError,
     ProviderTimeoutError,
 )
 from app.core.models import AccountInfo, GenerationRequest, GenerationResult, ModelInfo
@@ -52,18 +54,36 @@ class Provider(ABC):
         """Return balance and budget information for the configured key."""
 
 
+# Statuses that are worth telling apart. Left in the generic ProviderError they all
+# looked alike in the log, which is no help when deciding whether to retry, fix a
+# parameter or top up an account.
+_STATUS_ERRORS: dict[int, type] = {
+    400: BadParameterError,
+    401: AuthenticationError,
+    402: InsufficientFundsError,
+    403: AuthenticationError,
+    404: ProviderNotFoundError,
+    408: ProviderTimeoutError,
+    413: BadParameterError,
+    422: BadParameterError,
+    429: ProviderBusyError,
+    500: ProviderError,
+    502: ProviderError,
+    503: ProviderBusyError,
+    504: ProviderTimeoutError,
+}
+
+
 def raise_for_status(status_code: int, detail: str = "") -> None:
-    """Map an HTTP status code to the matching application exception."""
+    """Map an HTTP status code to the matching application exception.
+
+    ``429`` and ``503`` become :class:`ProviderBusyError`, which is the one that
+    says "the aggregator asked us to wait"; ``413`` is a parameter problem on our
+    side (a reference image too large), not a provider fault.
+    """
     message = detail.strip() or f"HTTP {status_code}"
-    if status_code in (401, 403):
-        raise AuthenticationError(message, status_code=status_code)
-    if status_code == 402:
-        raise InsufficientFundsError(message, status_code=status_code)
-    if status_code == 400:
-        raise BadParameterError(message, status_code=status_code)
-    if status_code == 504:
-        raise ProviderTimeoutError(message, status_code=status_code)
-    raise ProviderError(message, status_code=status_code)
+    error = _STATUS_ERRORS.get(status_code, ProviderError)
+    raise error(message, status_code=status_code)
 
 
 def wrap_network_error(exc: Exception) -> NetworkError:
