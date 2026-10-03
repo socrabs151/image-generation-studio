@@ -8,6 +8,7 @@ aside instead of being overwritten, and writes are atomic.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -149,7 +150,10 @@ class SettingsStore:
             theme=_as_str(raw.get("theme"), "light"),
             save_dir=_as_str(raw.get("save_dir"), DEFAULT_SAVE_DIR),
             auto_refresh_catalog=_as_bool(raw.get("auto_refresh_catalog"), True),
-            history_limit=_as_int(raw.get("history_limit"), 200),
+            # 0 would switch trimming off for good: the file would grow without
+            # bound. The settings dialog already clamps to at least 1; a file
+            # edited by hand gets the same treatment.
+            history_limit=max(1, _as_int(raw.get("history_limit"), 200)),
             confirm_threshold_rub=_as_float(raw.get("confirm_threshold_rub"), 50.0),
             session_limit_rub=_as_float(raw.get("session_limit_rub"), 0.0),
             generation_timeout=_as_int(raw.get("generation_timeout"), 180),
@@ -195,6 +199,8 @@ def _as_bool(value: object, fallback: bool) -> bool:
 
 
 def _as_int(value: object, fallback: int) -> int:
+    if value is None or isinstance(value, bool):
+        return fallback
     try:
         return int(value)  # type: ignore[call-overload, no-any-return]
     except (TypeError, ValueError):
@@ -202,7 +208,17 @@ def _as_int(value: object, fallback: int) -> int:
 
 
 def _as_float(value: object, fallback: float) -> float:
+    """A finite number, or the fallback.
+
+    ``float("nan")`` and ``float("inf")`` both parse, and both are poison in a
+    settings file: JSON cannot write them, so the first save after reading one
+    produces a file that no longer loads. A hand-edited file can contain the
+    string ``"nan"``, and refusing it here is cheaper than losing the settings.
+    """
+    if value is None or isinstance(value, bool):
+        return fallback
     try:
-        return float(value)  # type: ignore[arg-type]
+        number = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return fallback
+    return number if math.isfinite(number) else fallback
