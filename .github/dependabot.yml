@@ -1,14 +1,16 @@
 version: 2
 updates:
+  # Меток в dependabot.yml нет намеренно: dependabot не может создать метку и
+  # пишет в каждый PR ошибку о н��существующей. Метки — украшение; пусть PR
+  # приходят без них, пока в репозитории таких меток действительно нет.
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
-    labels: ["dependencies"]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
-    labels: ["dependencies", "ci"]
