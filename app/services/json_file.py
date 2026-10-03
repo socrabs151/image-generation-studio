@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -58,19 +59,67 @@ def read_json(path: Path, what: str) -> Any:
 
 
 def write_json_atomic(path: Path, data: Any) -> None:
-    """Write JSON through a temporary file, so a crash never truncates the file."""
+    """Write JSON through a temporary file, so a crash never truncates the file.
+
+    Three things beyond the rename:
+    - ``fsync`` on the temporary file, so the bytes are on the disk before the name
+      points at them;
+    - ``fsync`` on the directory, so the rename itself survives a reset;
+    - one previous copy kept as ``<name>.bak``, which is the only way back when the
+      new file parses but says the wrong thing.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False)
     handle = tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
     )
+    temporary = Path(handle.name)
     try:
         with handle:
             handle.write(text)
-        os.replace(handle.name, path)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _keep_previous(path)
+        os.replace(temporary, path)
+        _sync_directory(path.parent)
     except OSError:
-        Path(handle.name).unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
         raise
+
+
+def _keep_previous(path: Path) -> None:
+    """Copy the file that is about to be replaced next to it, once."""
+    if not path.is_file():
+        return
+    backup = path.with_name(path.name + ".bak")
+    try:
+        shutil.copy2(path, backup)
+    except OSError as exc:
+        # The write itself is what matters; a missing backup must not stop it.
+        LOGGER.warning("Could not keep a backup of %s: %s", path.name, exc)
+
+
+def _sync_directory(folder: Path) -> None:
+    """Tell the disk that the rename happened.
+
+    Windows cannot open a directory as a file handle, so there is nothing to
+    sync there: NTFS journals the metadata itself. Everywhere else the rename is
+    synced after the fact, because without it the name can be lost even though
+    the data reached the disk.
+    """
+    if os.name == "nt":
+        return
+    try:
+        handle = os.open(folder, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(handle)
+    except OSError:
+        # Windows refuses to fsync a directory handle; the data is already safe.
+        pass
+    finally:
+        os.close(handle)
 
 
 def quarantine(path: Path) -> Path | None:
