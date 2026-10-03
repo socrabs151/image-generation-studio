@@ -11,7 +11,9 @@ share the same code and the logic can be tested without a display.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +29,7 @@ USER_AGENT = f"image-generation-studio/{__version__}"
 # An index line looks like: - [Title](https://host/docs/page.md): Description
 INDEX_LINE = re.compile(r"^-\s+\[(?P<title>[^]]+)\]\((?P<url>[^)]+)\)")
 ILLEGAL_CHARS = re.compile(r'[\\/:*?"<>|]')
+# The index is paginated; this is how many links one page is asked for.
 PAGE_SIZE = 100
 
 ProgressCallback = Callable[[str], None]
@@ -132,10 +135,34 @@ def parse_index(text: str) -> list[Page]:
 
 
 def write_page(path: Path, content: str) -> None:
-    """Write Markdown text as UTF-8 without BOM using Windows line endings."""
+    """Write Markdown text as UTF-8 without BOM using Windows line endings.
+
+    Through a temporary file and a rename, so an interrupted download cannot
+    leave a truncated page behind. A truncated file used to be worse than a
+    missing one: it existed, so the next run counted it as already downloaded and
+    never fetched it again.
+    """
     text = content.replace("\r\n", "\n").rstrip("\n") + "\n"
-    with path.open("w", encoding="utf-8", newline="\r\n") as handle:
-        handle.write(text)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        newline="\r\n",
+        dir=path.parent,
+        prefix=path.name + ".",
+        suffix=".part",
+        delete=False,
+    )
+    temporary = Path(handle.name)
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def has_docs(source: DocsSource, docs_dir: Path | str = DOCS_DIR) -> bool:
@@ -223,7 +250,9 @@ def fetch_docs(
             continue
         try:
             write_page(target, _get_text(page.url, timeout, retries))
-        except RuntimeError as error:
+        except (RuntimeError, OSError) as error:
+            # One page that will not write is not a reason to abandon the rest;
+            # a full disk used to end the whole download on the first page.
             result.failed += 1
             result.errors.append(f"{page.title}: {error}")
             continue

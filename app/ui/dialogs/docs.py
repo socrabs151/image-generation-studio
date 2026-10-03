@@ -112,37 +112,47 @@ class DocsViewer(QWidget):
 
     # ---------- download ----------
     def _sync_load_buttons(self) -> None:
-        """Show a download button only for the providers that have no files yet.
+        """Offer a download for every provider, naming what is missing.
 
-        The state is decided from the filesystem rather than from ``isVisible()``,
-        which is still ``False`` before the window is shown.
+        The button used to disappear once any file existed, so the strategy
+        already in the code — ``force``, which re-downloads a provider from
+        scratch — could not be reached from the interface.
         """
         missing = [
             provider_id
             for provider_id, source in SOURCES.items()
             if not has_docs(source, self._docs_dir)
         ]
-        for provider_id, button in self._load_buttons.items():
-            button.setVisible(provider_id in missing)
-        if not missing:
-            self._subtitle.setText("Reference documentation is up to date.")
-        elif self._worker is None:
+        for button in self._load_buttons.values():
+            button.setVisible(True)
+        if self._worker is not None:
+            return
+        if missing:
+            names = ", ".join(SOURCES[provider_id].display_name for provider_id in missing)
+            self._subtitle.setText(f"No documentation downloaded yet for {names}.")
+        else:
             self._subtitle.setText(
-                "Download the reference documentation to read the aggregator guides."
+                "Reference documentation is up to date. "
+                "Download again to refresh it after the aggregator changes the guides."
             )
 
     def load_docs(self, provider_id: str) -> None:
-        """Download the documentation of one provider in the background."""
+        """Download the documentation of one provider in the background.
+
+        ``force`` re-downloads even when files exist, which is the only way to
+        pick up a guide the aggregator has edited.
+        """
         if self._worker is not None:
             self._subtitle.setText("A download is already running.")
             return
         source = SOURCES[provider_id]
+        already = has_docs(source, self._docs_dir)
         for button in self._load_buttons.values():
             button.setEnabled(False)
         self._stop_button.setVisible(True)
         self._subtitle.setText(f"Downloading {source.display_name} documentation…")
 
-        worker = FunctionWorker(fetch_docs, source, self._docs_dir)
+        worker = FunctionWorker(fetch_docs, source, self._docs_dir, force=already)
         worker.setAutoDelete(False)
         worker.signals.finished.connect(self._on_docs_loaded)
         worker.signals.failed.connect(self._on_docs_failed)
