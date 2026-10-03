@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.config import CATALOG_CACHE_FILE
@@ -19,6 +20,93 @@ from app.providers import create_provider
 from app.services.json_file import read_json, write_json_atomic
 
 LOGGER = get_logger()
+
+# A cached catalog is a fallback, not a source of truth: it lets the application
+# start without a network. Prices are read from it, so its age is worth knowing.
+CACHE_TTL = timedelta(days=7)
+_MODELS_KEY = "models"
+_SAVED_AT_KEY = "saved_at"
+
+
+
+class _Unusable:
+    """Marker for a cache value that does not fit its field."""
+
+    def __repr__(self) -> str:
+        return "<unusable>"
+
+
+_UNUSABLE = _Unusable()
+
+
+def _unpack_entry(entry: object) -> tuple[list, datetime | None]:
+    """Read a cache entry written by this or by an older build.
+
+    The current format is ``{"saved_at": ..., "models": [...]}``; before the
+    timestamp it was a bare list, and those files are still on users' disks.
+    """
+    if isinstance(entry, list):
+        return entry, None
+    if not isinstance(entry, dict):
+        return [], None
+    models = entry.get(_MODELS_KEY)
+    if not isinstance(models, list):
+        return [], None
+    saved_at = entry.get(_SAVED_AT_KEY)
+    parsed: datetime | None = None
+    if isinstance(saved_at, str):
+        try:
+            parsed = datetime.fromisoformat(saved_at)
+        except ValueError:
+            LOGGER.warning("Catalog cache carries an unreadable timestamp: %r", saved_at)
+    if parsed is not None and parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return models, parsed
+
+
+# Base types the cache can be checked against; a "X | None" field accepts a
+# real X or nothing.
+_SIMPLE_TYPES = {"bool": bool, "int": int, "float": float, "str": str, "list": list}
+
+
+def _expected(field: object) -> tuple[type | None, bool]:
+    """The base type of a dataclass field and whether ``None`` is allowed.
+
+    ``__dataclass_fields__`` maps a name to a ``Field`` object, so taking
+    ``type(default)`` describes the Field, not the value — and every field then
+    passed through unchecked.
+    """
+    annotation = getattr(field, "type", None)
+    if not isinstance(annotation, str):
+        return None, True
+    parts = [part.strip() for part in annotation.split("|")]
+    # "list[str]" is a list; the parameter inside it does not matter here.
+    base = _SIMPLE_TYPES.get(parts[0].split("[")[0].strip())
+    return base, "None" in parts[1:]
+
+
+def _coerce(value: object, expected: type | None, optional: bool = False) -> object:
+    """Narrow a JSON value to the type the field expects, or reject it."""
+    if value is None:
+        # An optional price is written as null and read back as null.
+        return value if optional else _UNUSABLE
+    if expected is bool:
+        return value if isinstance(value, bool) else _UNUSABLE
+    if expected is int:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return _UNUSABLE
+        return int(value)
+    if expected is float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return _UNUSABLE
+        return float(value)
+    if expected is str:
+        return value if isinstance(value, str) else _UNUSABLE
+    if expected is list:
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            return _UNUSABLE
+        return value
+    return value
 
 
 @dataclass(slots=True)
@@ -71,23 +159,28 @@ class CatalogService:
 
     def _read_cache(self, provider_id: str) -> list[ModelInfo]:
         with self._lock:
-            raw = self._read_all().get(provider_id)
-        if not isinstance(raw, list):
-            return []
-        models: list[ModelInfo] = []
-        for item in raw:
-            if not isinstance(item, dict) or "id" not in item:
-                continue
-            try:
-                models.append(self._model_from_dict(item))
-            except (TypeError, ValueError) as exc:
-                LOGGER.warning("Skipping a broken cache entry: %s", exc)
-        return models
+            entry = self._read_all().get(provider_id)
+        models, saved_at = _unpack_entry(entry)
+        if saved_at is not None and datetime.now(UTC) - saved_at > CACHE_TTL:
+            LOGGER.warning(
+                "The cached catalog of %s is older than %d days; prices may be out of date.",
+                provider_id,
+                CACHE_TTL.days,
+            )
+        result: list[ModelInfo] = []
+        for item in models:
+            model = self._model_from_dict(item)
+            if model is not None:
+                result.append(model)
+        return result
 
     def _write_cache(self, provider_id: str, models: list[ModelInfo]) -> None:
         with self._lock:
             store = self._read_all()
-            store[provider_id] = [self._model_to_dict(model) for model in models]
+            store[provider_id] = {
+                _SAVED_AT_KEY: datetime.now(UTC).isoformat(timespec="seconds"),
+                _MODELS_KEY: [self._model_to_dict(model) for model in models],
+            }
             try:
                 write_json_atomic(self._cache_path, store)
             except OSError as exc:
@@ -103,6 +196,27 @@ class CatalogService:
         return asdict(model)
 
     @staticmethod
-    def _model_from_dict(raw: dict) -> ModelInfo:
-        fields = ModelInfo.__dataclass_fields__
-        return ModelInfo(**{key: raw[key] for key in fields if key in raw})
+    def _model_from_dict(raw: object) -> ModelInfo | None:
+        """Build a model from a cache entry, or ``None`` when it is unusable.
+
+        The dataclass does not check its arguments, so ``max_n: "3"`` used to be
+        stored happily and only failed later, in the parameters panel, as a
+        ``TypeError`` in the middle of the interface.
+        """
+        if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
+            return None
+        values: dict = {}
+        for key, field in ModelInfo.__dataclass_fields__.items():
+            if key not in raw:
+                continue
+            expected, optional = _expected(field)
+            value = _coerce(raw[key], expected, optional)
+            if value is _UNUSABLE:
+                LOGGER.warning("Skipping cache entry %r: %s has the wrong type", raw.get("id"), key)
+                return None
+            values[key] = value
+        try:
+            return ModelInfo(**values)
+        except TypeError as exc:
+            LOGGER.warning("Skipping a broken cache entry: %s", exc)
+            return None
