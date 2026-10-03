@@ -32,10 +32,16 @@ _CLOSE = 20
 
 @dataclass(slots=True)
 class Reference:
-    """One loaded reference image."""
+    """One loaded reference image.
+
+    The raw bytes are the reference; ``thumbnail`` is all the strip ever draws.
+    A full-resolution pixmap is deliberately not kept: sixteen 4K references would
+    hold hundreds of megabytes until the panel is cleared, and nothing on screen
+    is bigger than one thumbnail.
+    """
 
     data: bytes
-    pixmap: QPixmap
+    thumbnail: QPixmap
     source_path: str = ""
 
 
@@ -103,9 +109,14 @@ class ReferencePanel(QWidget):
         """Raw bytes of every reference, ready for a request."""
         return [item.data for item in self._items]
 
-    def pixmaps(self) -> list[QPixmap]:
-        """Full-resolution pixmaps of every reference."""
-        return [item.pixmap for item in self._items]
+    def full_pixmaps(self) -> list[QPixmap]:
+        """Full-resolution pixmaps, built on demand for the image viewer.
+
+        Nothing keeps these: the viewer asks for them when it opens and drops them
+        when it closes, so the memory is spent only while a reference is actually
+        being looked at.
+        """
+        return [QPixmap.fromImage(QImage.fromData(item.data)) for item in self._items]
 
     def source_paths(self) -> list[str]:
         """Files the references were loaded from; pasted images contribute nothing."""
@@ -132,8 +143,21 @@ class ReferencePanel(QWidget):
         image = QImage.fromData(data)
         if image.isNull():
             return False
+        # Scale the QImage before it becomes a pixmap: the full-size pixmap would
+        # cost 32 MB for a 4K picture and is never drawn.
         self._items.append(
-            Reference(data=data, pixmap=QPixmap.fromImage(image), source_path=source_path)
+            Reference(
+                data=data,
+                thumbnail=QPixmap.fromImage(
+                    image.scaled(
+                        _THUMB - 4,
+                        _THUMB - 4,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                ),
+                source_path=source_path,
+            )
         )
         self._rebuild()
         return True
@@ -175,12 +199,7 @@ class ReferencePanel(QWidget):
         thumb.setGeometry(0, 0, _THUMB, _THUMB)
         thumb.setCursor(Qt.CursorShape.PointingHandCursor)
         thumb.setToolTip(self._items[index].source_path or f"Reference {index + 1}")
-        scaled = self._items[index].pixmap.scaled(
-            _THUMB - 4,
-            _THUMB - 4,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        scaled = self._items[index].thumbnail
         thumb.setIcon(scaled)
         thumb.setIconSize(scaled.size())
         thumb.clicked.connect(lambda _=False, i=index: self.referenceActivated.emit(i))

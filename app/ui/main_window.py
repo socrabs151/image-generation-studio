@@ -1232,7 +1232,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _open_reference_viewer(self, index: int = 0) -> None:
-        pixmaps = self.workspace.reference.pixmaps()
+        pixmaps = self.workspace.reference.full_pixmaps()
         if not pixmaps:
             return
         window = ImageViewerWindow(
